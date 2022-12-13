@@ -1,7 +1,9 @@
 set(TARGET_NAME ur_level_zero)
 
-add_library(${TARGET_NAME}
+add_sycl_library(${TARGET_NAME}
     SHARED
+    TOOLCHAIN
+    SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/ur_level_zero.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/ur_level_zero.hpp
         # These are short-term shared with Unified Runtime
@@ -9,26 +11,17 @@ add_library(${TARGET_NAME}
         # be built separately. This difference is spelled in
         # their "ur_bindings.hpp" files.
         #
-        "../../../ur_bindings.hpp"
-        "../../../pi2ur.hpp"
-        "../../../pi2ur.cpp"
-        "../../ur.hpp"
-        "../../ur.cpp"
-)
-
-# set_target_properties(${TARGET_NAME} PROPERTIES
-#     VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
-#     SOVERSION "${PROJECT_VERSION_MAJOR}"
-# )
-
-target_include_directories(${TARGET_NAME}
-  PRIVATE "${LEVEL_ZERO_INCLUDE_DIR}"
-)
-
-target_link_libraries(${TARGET_NAME}
-  PRIVATE
-    LevelZeroLoader-Headers
-    LevelZeroLoader
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../ur_bindings.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../pi2ur.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../pi2ur.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../ur.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../ur.cpp
+    INCLUDE_DIRS
+        ${CMAKE_CURRENT_SOURCE_DIR}/../..
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../..
+    LIBRARIES
+        LevelZeroLoader-Headers
+        LevelZeroLoader
 )
 
 # if(UNIX)
