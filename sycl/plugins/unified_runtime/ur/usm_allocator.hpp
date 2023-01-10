@@ -31,8 +31,7 @@ public:
 };
 
 // Configuration for specific USM allocator instance
-class USMAllocatorParameters {
-public:
+struct USMAllocatorParameters {
   const char *memoryTypeName = "";
 
   // Minimum allocation size that will be requested from the system.
