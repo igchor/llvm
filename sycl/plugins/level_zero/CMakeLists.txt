@@ -94,6 +94,9 @@ add_sycl_plugin(level_zero
     "../unified_runtime/ur/usm_allocator_config.hpp"
     "../unified_runtime/ur/adapters/level_zero/ur_level_zero.hpp"
     "../unified_runtime/ur/adapters/level_zero/ur_level_zero.cpp"
+    "../unified_runtime/ur/adapters/level_zero/l0_memory_provider.cpp"
+    "../unified_runtime/ur/unified_memory_allocation/src/memory_pool.c" #TODO: just create static lib
+    "../unified_runtime/ur/unified_memory_allocation/src/memory_provider.c"
     # Following are the PI Level-Zero Plugin only codes.
     "pi_level_zero.cpp"
     "pi_level_zero.hpp"
@@ -103,6 +106,7 @@ add_sycl_plugin(level_zero
     ${CMAKE_CURRENT_BINARY_DIR} # for ze_api.def
     ${CMAKE_CURRENT_SOURCE_DIR} # for Level-Zero Plugin "ur_bindings.hpp"
     ${CMAKE_CURRENT_SOURCE_DIR}/../unified_runtime # for Unified Runtime
+    ${CMAKE_CURRENT_SOURCE_DIR}/../unified_runtime/ur/unified_memory_allocation/include
     ${XPTI_INCLUDE}
   LIBRARIES
     LevelZeroLoader-Headers

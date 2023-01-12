@@ -12,38 +12,9 @@
 */
 
 #include "usm_allocator.hpp"
+#include "disjoint_pool.h"
 
 #include <uma/memory_pool_base.h>
-#include <uma/memory_pools/disjoint_pool.h>
-
-class MemoryProviderWrapper : public SystemMemory {
-public:
-  MemoryProviderWrapper(usm_memory_prrovider_handle_t hProvider): hProvider(hProvider) {
-  }
-
-  void *allocate(size_t size) override {
-    return allocate(size, 0);
-  }
-
-  void *allocate(size_t size, size_t aligned) override {
-    void* ptr;
-    
-    if (usmMemoryProviderAlloc(hProvider, size, aligned, &ptr) != UMA_RESULT_SUCCESS) {
-      throw std::runtime_error("TODO");
-    }
-
-    return ptr;
-  }
-
-  void deallocate(void *ptr) override {
-    if (usmMemoryProviderFree(hProvider, ptr, 0) != UMA_RESULT_SUCCESS) {
-      throw std::runtime_error("TODO");
-    }
-  }
-
-private:
-  usm_memory_prrovider_handle_t hProvider;
-};
 
 extern "C" {
 
@@ -70,7 +41,7 @@ struct disjoint_pool_t {
     USMAllocContext ctx;
 };
 
-enum uma_result_t umaDisjointPoolCreate(uma_memory_provider_handle_t hProvider,
+enum uma_result_t disjointPoolCreate(uma_memory_provider_handle_t hProvider,
                                         USMAllocatorParameters *params,
                                         uma_memory_pool_handle_t *out) {
   auto memHandle = std::unique_ptr<SystemMemory>(new MemoryProviderWrapper(hProvider));
@@ -87,7 +58,7 @@ enum uma_result_t umaDisjointPoolCreate(uma_memory_provider_handle_t hProvider,
   return UMA_RESULT_SUCCESS;
 }
 
-void umaUSMPoolDestroy(uma_memory_pool_handle_t hPool) {
+void disjointPoolDestroy(uma_memory_pool_handle_t hPool) {
   delete reinterpret_cast<disjoint_pool_t *>(hPool);
 }
 }

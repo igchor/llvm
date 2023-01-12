@@ -24,17 +24,12 @@ struct uma_memory_provider_ops_t {
   enum uma_result_t (*alloc)(uma_memory_provider_handle_t, size_t, size_t,
                              void **);
   enum uma_result_t (*free)(uma_memory_provider_handle_t, void *, size_t);
-
-  void (*get_supported_alignments)(uma_memory_provider_handle_t, size_t *,
-                                   size_t *);
 };
 
 enum uma_result_t umaMemoryProviderAlloc(uma_memory_provider_handle_t, size_t,
                                          size_t, void **);
 enum uma_result_t umaMemoryProviderFree(uma_memory_provider_handle_t, void *,
                                         size_t);
-void umaMemoryProviderGetSupportedAlignments(uma_memory_provider_handle_t,
-                                             size_t *, size_t *);
 
 #ifdef __cplusplus
 }

@@ -19,14 +19,13 @@ extern "C" {
 #include <uma/memory_pool_base.h>
 #include <uma/memory_provider_base.h>
 
-// TODO: remove this once usm_allocator is moved to UR common
 struct USMAllocatorParameters;
 
-enum uma_result_t umaDisjointPoolCreate(uma_memory_provider_handle_t hProvider,
+enum uma_result_t disjointPoolCreate(uma_memory_provider_handle_t hProvider,
                                         USMAllocatorParameters *params,
                                         uma_memory_pool_handle_t *out);
 
-void umaUSMPoolDestroy(uma_memory_pool_handle_t hPool);
+void disjointPoolDestroy(uma_memory_pool_handle_t hPool);
 
 #ifdef __cplusplus
 }

@@ -29,6 +29,8 @@
 #include "ur/usm_allocator_config.hpp"
 #include "ur_bindings.hpp"
 
+#include <ur/adapters/level_zero/l0_memory_provider.h>
+
 extern "C" {
 // Forward declarartions.
 static pi_result piQueueReleaseInternal(pi_queue Queue);
@@ -770,6 +772,28 @@ pi_device _pi_context::getRootDevice() const {
   return ContextRootDevice;
 }
 
+static uma_memory_provider_handle_t createL0MemoryProvider(pi_context context, pi_device device, enum l0_memory_type type, int protection) {
+  auto config = l0MemoryProviderConfigCreate();
+  if (!config) {
+    throw std::runtime_error("TODO");
+  }
+
+  l0MemoryProviderConfigSetContext(config, context);
+  l0MemoryProviderConfigSetDevice(config, device);
+  l0MemoryProviderConfigSetMemoryType(config, type);
+  l0MemoryProviderConfigSetMemoryProtection(config, protection);
+
+  uma_memory_provider_handle_t out;
+  auto ret = l0MemoryProviderCreate(config, &out);
+  l0MemoryProviderConfigDestroy(config);
+
+  if (ret != UMA_RESULT_SUCCESS) {
+    throw std::runtime_error("TODO");
+  }
+
+  return out;
+}
+
 pi_result _pi_context::initialize() {
 
   // Helper lambda to create various USM allocators for a device.
@@ -778,19 +802,19 @@ pi_result _pi_context::initialize() {
         std::piecewise_construct, std::make_tuple(Device),
         std::make_tuple(
             std::unique_ptr<SystemMemory>(
-                new USMSharedMemoryAlloc(this, Device)),
+                new MemoryProviderWrapper(createL0MemoryProvider(this, Device, TypeShared, Read | Write))),
             USMAllocatorConfigInstance.Configs[usm_settings::MemType::Shared]));
     SharedReadOnlyMemAllocContexts.emplace(
         std::piecewise_construct, std::make_tuple(Device),
         std::make_tuple(std::unique_ptr<SystemMemory>(
-                            new USMSharedReadOnlyMemoryAlloc(this, Device)),
+                            new MemoryProviderWrapper(createL0MemoryProvider(this, Device, TypeShared, Read))),
                         USMAllocatorConfigInstance
                             .Configs[usm_settings::MemType::SharedReadOnly]));
     DeviceMemAllocContexts.emplace(
         std::piecewise_construct, std::make_tuple(Device),
         std::make_tuple(
             std::unique_ptr<SystemMemory>(
-                new USMDeviceMemoryAlloc(this, Device)),
+                new MemoryProviderWrapper(createL0MemoryProvider(this, Device, TypeDevice, Read | Write))),
             USMAllocatorConfigInstance.Configs[usm_settings::MemType::Device]));
   };
 
@@ -813,7 +837,7 @@ pi_result _pi_context::initialize() {
   // are device-specific. Host allocations are not device-dependent therefore
   // we don't need a map with device as key.
   HostMemAllocContext = std::make_unique<USMAllocContext>(
-      std::unique_ptr<SystemMemory>(new USMHostMemoryAlloc(this)),
+      std::unique_ptr<SystemMemory>(new MemoryProviderWrapper(createL0MemoryProvider(this, nullptr, TypeHost, Read | Write))),
       USMAllocatorConfigInstance.Configs[usm_settings::MemType::Host]);
 
   // We may allocate memory to this root device so create allocators.
@@ -8078,68 +8102,6 @@ static pi_result USMFreeImpl(pi_context Context, void *Ptr) {
   return PI_SUCCESS;
 }
 
-// Exception type to pass allocation errors
-class UsmAllocationException {
-  const pi_result Error;
-
-public:
-  UsmAllocationException(pi_result Err) : Error{Err} {}
-  pi_result getError() const { return Error; }
-};
-
-pi_result USMSharedMemoryAlloc::allocateImpl(void **ResultPtr, size_t Size,
-                                             pi_uint32 Alignment) {
-  return USMSharedAllocImpl(ResultPtr, Context, Device, nullptr, Size,
-                            Alignment);
-}
-
-pi_result USMSharedReadOnlyMemoryAlloc::allocateImpl(void **ResultPtr,
-                                                     size_t Size,
-                                                     pi_uint32 Alignment) {
-  pi_usm_mem_properties Props[] = {PI_MEM_ALLOC_FLAGS,
-                                   PI_MEM_ALLOC_DEVICE_READ_ONLY, 0};
-  return USMSharedAllocImpl(ResultPtr, Context, Device, Props, Size, Alignment);
-}
-
-pi_result USMDeviceMemoryAlloc::allocateImpl(void **ResultPtr, size_t Size,
-                                             pi_uint32 Alignment) {
-  return USMDeviceAllocImpl(ResultPtr, Context, Device, nullptr, Size,
-                            Alignment);
-}
-
-pi_result USMHostMemoryAlloc::allocateImpl(void **ResultPtr, size_t Size,
-                                           pi_uint32 Alignment) {
-  return USMHostAllocImpl(ResultPtr, Context, nullptr, Size, Alignment);
-}
-
-void *USMMemoryAllocBase::allocate(size_t Size) {
-  void *Ptr = nullptr;
-
-  auto Res = allocateImpl(&Ptr, Size, sizeof(void *));
-  if (Res != PI_SUCCESS) {
-    throw UsmAllocationException(Res);
-  }
-
-  return Ptr;
-}
-
-void *USMMemoryAllocBase::allocate(size_t Size, size_t Alignment) {
-  void *Ptr = nullptr;
-
-  auto Res = allocateImpl(&Ptr, Size, Alignment);
-  if (Res != PI_SUCCESS) {
-    throw UsmAllocationException(Res);
-  }
-  return Ptr;
-}
-
-void USMMemoryAllocBase::deallocate(void *Ptr) {
-  auto Res = USMFreeImpl(Context, Ptr);
-  if (Res != PI_SUCCESS) {
-    throw UsmAllocationException(Res);
-  }
-}
-
 pi_result piextUSMDeviceAlloc(void **ResultPtr, pi_context Context,
                               pi_device Device,
                               pi_usm_mem_properties *Properties, size_t Size,
@@ -8200,10 +8162,6 @@ pi_result piextUSMDeviceAlloc(void **ResultPtr, pi_context Context,
                                  std::forward_as_tuple(*ResultPtr),
                                  std::forward_as_tuple(Context));
     }
-
-  } catch (const UsmAllocationException &Ex) {
-    *ResultPtr = nullptr;
-    return Ex.getError();
   } catch (...) {
     return PI_ERROR_UNKNOWN;
   }
@@ -8281,9 +8239,6 @@ pi_result piextUSMSharedAlloc(void **ResultPtr, pi_context Context,
                                  std::forward_as_tuple(*ResultPtr),
                                  std::forward_as_tuple(Context));
     }
-  } catch (const UsmAllocationException &Ex) {
-    *ResultPtr = nullptr;
-    return Ex.getError();
   } catch (...) {
     return PI_ERROR_UNKNOWN;
   }
@@ -8348,9 +8303,6 @@ pi_result piextUSMHostAlloc(void **ResultPtr, pi_context Context,
                                  std::forward_as_tuple(*ResultPtr),
                                  std::forward_as_tuple(Context));
     }
-  } catch (const UsmAllocationException &Ex) {
-    *ResultPtr = nullptr;
-    return Ex.getError();
   } catch (...) {
     return PI_ERROR_UNKNOWN;
   }
@@ -8408,8 +8360,6 @@ static pi_result USMFreeHelper(pi_context Context, void *Ptr,
   if (ZeMemoryAllocationProperties.type == ZE_MEMORY_TYPE_HOST) {
     try {
       Context->HostMemAllocContext->deallocate(Ptr);
-    } catch (const UsmAllocationException &Ex) {
-      return Ex.getError();
     } catch (...) {
       return PI_ERROR_UNKNOWN;
     }
@@ -8444,8 +8394,8 @@ static pi_result USMFreeHelper(pi_context Context, void *Ptr,
 
             // The right context is found, deallocate the pointer
             It->second.deallocate(Ptr);
-          } catch (const UsmAllocationException &Ex) {
-            return Ex.getError();
+          } catch (...) {
+            return PI_ERROR_UNKNOWN;
           }
 
           if (IndirectAccessTrackingEnabled)
