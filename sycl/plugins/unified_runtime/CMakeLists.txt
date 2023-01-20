@@ -49,9 +49,15 @@ add_sycl_plugin(unified_runtime
     "ur/adapters/level_zero/ur_level_zero.cpp"
     "ur/usm_allocator.hpp"
     "ur/usm_allocator.cpp"
+    "ur/uma_helpers.hpp"
+    "ur/unified_memory_allocation/src/memory_pool.c" # TODO: make static lib
+    "ur/unified_memory_allocation/src/memory_provider.c"
     # These below belong to Unified Runtime PI Plugin only
     "pi_unified_runtime.hpp"
     "pi_unified_runtime.cpp"
+    INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/ur/unified_memory_allocation/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/ur
     LIBRARIES
     Threads::Threads
     UnifiedRuntime-Headers

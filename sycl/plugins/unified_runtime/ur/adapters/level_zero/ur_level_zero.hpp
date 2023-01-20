@@ -20,6 +20,8 @@
 #include <zer_api.h>
 #include <zes_api.h>
 
+#include "uma_helpers.hpp"
+
 // Returns the ze_structure_type_t to use in .stype of a structured descriptor.
 // Intentionally not defined; will give an error if no proper specialization
 template <class T> ze_structure_type_t getZeStructureType();
@@ -227,3 +229,14 @@ extern std::map<const char *, int> *ZeCallCount;
 constexpr char ZE_SUPPORTED_EXTENSIONS[] =
     "cl_khr_il_program cl_khr_subgroups cl_intel_subgroups "
     "cl_intel_subgroups_short cl_intel_required_subgroup_size ";
+
+struct _pi_context;
+struct _pi_device;
+
+using pi_context = _pi_context *;
+using pi_device = _pi_device *;
+
+// TODO: pass ur_mem_desc_t once implemented
+ur_memory_provider_handle_unique
+levelZeroMemoryProviderMakeUnique(pi_context context, pi_device device,
+                                  enum ur_memory_type type, int protection);

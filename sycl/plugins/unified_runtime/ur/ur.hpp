@@ -315,3 +315,11 @@ protected:
   void *param_value;
   size_t *param_value_size_ret;
 };
+
+enum class ur_memory_type { HOST, DEVICE, SHARED };
+
+struct ur_protection {
+  static constexpr int NONE = 0;
+  static constexpr int READ = 1;
+  static constexpr int WRITE = 2;
+};

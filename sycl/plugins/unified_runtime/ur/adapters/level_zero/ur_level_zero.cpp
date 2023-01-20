@@ -12,6 +12,12 @@
 #include "ur_level_zero.hpp"
 #include <ur_bindings.hpp>
 
+#include "uma_helpers.hpp"
+
+// TODO: temporarily to have pi_context/pi_device
+// remove this once we move them to ur
+#include "../level_zero/pi_level_zero.hpp"
+
 // Define the static class field
 std::mutex ZeCall::GlobalLock;
 
@@ -49,6 +55,20 @@ bool setEnvVar(const char *name, const char *value) {
     ze_result_t ZeResult = ZeName ZeArgs;                                      \
     if (auto Result = ZeCall().doCall(ZeResult, #ZeName, #ZeArgs, true))       \
       return ze2urResult(Result);                                              \
+  }
+
+static enum uma_result_t ze2umaResult(ze_result_t result) {
+  if (result == ZE_RESULT_SUCCESS) {
+    return UMA_RESULT_SUCCESS;
+  }
+  return UMA_RESULT_RUNTIME_ERROR;
+}
+
+#define UMA_ZE_CALL(ZeName, ZeArgs)                                            \
+  {                                                                            \
+    ze_result_t ZeResult = ZeName ZeArgs;                                      \
+    if (auto Result = ZeCall().doCall(ZeResult, #ZeName, #ZeArgs, true))       \
+      return ze2umaResult(Result);                                             \
   }
 
 // This will count the calls to Level-Zero
@@ -447,4 +467,112 @@ ZER_APIEXPORT zer_result_t ZER_APICALL zerPlatformGetInfo(
   }
 
   return ZER_RESULT_SUCCESS;
+}
+
+class ur_level_zero_memory_provider {
+public:
+  // TODO: accept usm_mem_properties and translate to L0 properties
+  ur_level_zero_memory_provider(pi_context context, pi_device device,
+                                enum ur_memory_type type, int protection)
+      : hContext(context), hDevice(device), type(type), protection(protection) {
+    // TODO: handle protection (hint L0 for read/write-only?)
+  }
+
+  enum uma_result_t alloc(size_t size, size_t alignment, void **ptr) {
+    if (type == ur_memory_type::DEVICE) {
+      return deviceAlloc(size, alignment, ptr);
+    } else if (type == ur_memory_type::HOST) {
+      return hostAlloc(size, alignment, ptr);
+    } else if (type == ur_memory_type::SHARED) {
+      return sharedAlloc(size, alignment, ptr);
+    } else {
+      return UMA_RESULT_INVALID_VALUE;
+    }
+  }
+
+  enum uma_result_t free(void *ptr, size_t size) {
+    (void)size;
+    UMA_ZE_CALL(zeMemFree, (hContext->ZeContext, ptr));
+    return UMA_RESULT_SUCCESS;
+  }
+
+private:
+  pi_context hContext;
+  pi_device hDevice;
+  enum ur_memory_type type;
+  int protection;
+
+  enum uma_result_t deviceAlloc(size_t size, size_t alignment, void **ptr) {
+    PI_ASSERT(hContext, UMA_RESULT_INVALID_VALUE);
+    PI_ASSERT(hDevice, UMA_RESULT_INVALID_VALUE);
+
+    ZeStruct<ze_device_mem_alloc_desc_t> zeDesc;
+    zeDesc.flags = 0;
+    zeDesc.ordinal = 0;
+
+    ZeStruct<ze_relaxed_allocation_limits_exp_desc_t> RelaxedDesc;
+    if (size > hDevice->ZeDeviceProperties->maxMemAllocSize) {
+      // Tell Level-Zero to accept Size > maxMemAllocSize
+      RelaxedDesc.flags = ZE_RELAXED_ALLOCATION_LIMITS_EXP_FLAG_MAX_SIZE;
+      zeDesc.pNext = &RelaxedDesc;
+    }
+
+    UMA_ZE_CALL(zeMemAllocDevice, (hContext->ZeContext, &zeDesc, size,
+                                   alignment, hDevice->ZeDevice, ptr));
+
+    PI_ASSERT(alignment == 0 ||
+                  reinterpret_cast<std::uintptr_t>(*ptr) % alignment == 0,
+              UMA_RESULT_INVALID_VALUE);
+
+    return UMA_RESULT_SUCCESS;
+  }
+
+  enum uma_result_t sharedAlloc(size_t size, size_t alignment, void **ptr) {
+    PI_ASSERT(hContext, UMA_RESULT_INVALID_VALUE);
+    PI_ASSERT(hDevice, UMA_RESULT_INVALID_VALUE);
+
+    ZeStruct<ze_host_mem_alloc_desc_t> zeHostDesc;
+    zeHostDesc.flags = 0;
+    ZeStruct<ze_device_mem_alloc_desc_t> zeDevDesc;
+    zeDevDesc.flags = 0;
+    zeDevDesc.ordinal = 0;
+
+    ZeStruct<ze_relaxed_allocation_limits_exp_desc_t> RelaxedDesc;
+    if (size > hDevice->ZeDeviceProperties->maxMemAllocSize) {
+      // Tell Level-Zero to accept Size > maxMemAllocSize
+      RelaxedDesc.flags = ZE_RELAXED_ALLOCATION_LIMITS_EXP_FLAG_MAX_SIZE;
+      zeDevDesc.pNext = &RelaxedDesc;
+    }
+
+    UMA_ZE_CALL(zeMemAllocShared, (hContext->ZeContext, &zeDevDesc, &zeHostDesc,
+                                   size, alignment, hDevice->ZeDevice, ptr));
+
+    PI_ASSERT(alignment == 0 ||
+                  reinterpret_cast<std::uintptr_t>(*ptr) % alignment == 0,
+              UMA_RESULT_INVALID_VALUE);
+
+    return UMA_RESULT_SUCCESS;
+  }
+
+  enum uma_result_t hostAlloc(size_t size, size_t alignment, void **ptr) {
+    PI_ASSERT(hContext, UMA_RESULT_INVALID_VALUE);
+
+    ZeStruct<ze_host_mem_alloc_desc_t> zeHostDesc;
+    zeHostDesc.flags = 0;
+    UMA_ZE_CALL(zeMemAllocHost,
+                (hContext->ZeContext, &zeHostDesc, size, alignment, ptr));
+
+    PI_ASSERT(alignment == 0 ||
+                  reinterpret_cast<std::uintptr_t>(*ptr) % alignment == 0,
+              UMA_RESULT_INVALID_VALUE);
+
+    return UMA_RESULT_SUCCESS;
+  }
+};
+
+ur_memory_provider_handle_unique
+levelZeroMemoryProviderMakeUnique(pi_context context, pi_device device,
+                                  enum ur_memory_type type, int protection) {
+  return memoryProviderMakeUnique<ur_level_zero_memory_provider>(
+      context, device, type, protection);
 }
