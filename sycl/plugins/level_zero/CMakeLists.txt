@@ -117,6 +117,8 @@ add_sycl_plugin(level_zero
     UnifiedRuntime-Headers
     LevelZeroLoader
     Threads::Threads
+    unified-runtime::common
+    unified-runtime::unified_memory_allocation
     ${XPTI_LIBS}
 )
 
