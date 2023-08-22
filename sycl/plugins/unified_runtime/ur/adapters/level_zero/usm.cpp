@@ -607,7 +607,13 @@ UR_APIEXPORT ur_result_t UR_APICALL urUSMGetMemAllocInfo(
 }
 
 static ur_result_t USMFreeImpl(ur_context_handle_t Context, void *Ptr) {
-  ZE2UR_CALL(zeMemFree, (Context->ZeContext, Ptr));
+  ze_result_t ZeResult = zeMemFree(Context->ZeContext, Ptr);
+  if (auto Result = ZeCall().doCall(ZeResult, "zeMemFree",
+                                    "(Context->ZeContext, Ptr)", true)) {
+    USMMemoryProvider::getLastNativeStatusRef() = Result;
+    return ze2urResult(Result);
+  }
+
   return UR_RESULT_SUCCESS;
 }
 
@@ -675,8 +681,8 @@ enum umf_result_t USMMemoryProvider::free(void *Ptr, size_t Size) {
 
 void USMMemoryProvider::get_last_native_error(const char **ErrMsg,
                                               int32_t *ErrCode) {
-  (void)ErrMsg;
-  *ErrCode = static_cast<int32_t>(getLastStatusRef());
+  zeDriverGetLastErrorDescription(Context->getPlatform()->ZeDriver, ErrMsg);
+  *ErrCode = static_cast<int32_t>(getLastNativeStatusRef());
 }
 
 umf_result_t USMMemoryProvider::get_min_page_size(void *Ptr, size_t *PageSize) {

@@ -59,6 +59,11 @@ protected:
                                    uint32_t Alignment) = 0;
 
 public:
+  static int &getLastNativeStatusRef() {
+    static thread_local int LastStatus = 0;
+    return LastStatus;
+  }
+
   umf_result_t initialize(ur_context_handle_t Ctx, ur_device_handle_t Dev);
   umf_result_t alloc(size_t Size, size_t Align, void **Ptr);
   umf_result_t free(void *Ptr, size_t Size);
