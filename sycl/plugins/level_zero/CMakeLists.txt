@@ -94,6 +94,7 @@ add_sycl_plugin(level_zero
     UnifiedRuntime-Headers
     UnifiedRuntimeCommon
     UnifiedMemoryFramework
+    unified-memory-framework::jemalloc_pool
     LevelZeroLoader
     Threads::Threads
     ${XPTI_LIBS}
