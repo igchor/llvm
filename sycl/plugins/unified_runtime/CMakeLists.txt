@@ -17,7 +17,6 @@ set(SYCL_PI_UR_SOURCE_DIR
 
 # Override default to enable building tests from unified-runtime
 set(UR_BUILD_TESTS OFF CACHE BOOL "Build unit tests.")
-set(UMF_ENABLE_POOL_TRACKING ON)
 
 if("level_zero" IN_LIST SYCL_ENABLE_PLUGINS)
   set(UR_BUILD_ADAPTER_L0 ON)
@@ -94,14 +93,10 @@ if(SYCL_PI_UR_USE_FETCH_CONTENT)
       CACHE PATH "Path to external '${name}' adapter source dir" FORCE)
   endfunction()
 
-  set(UNIFIED_RUNTIME_REPO "https://github.com/oneapi-src/unified-runtime.git")
-  # commit 1e1f577262747d67fcb5c513de4a11bec67ea5db
-  # Merge: dd212f3f 0b405a12
-  # Author: Kenneth Benzie (Benie) <k.benzie@codeplay.com>
-  # Date:   Thu May 9 18:00:36 2024 +0100
-  #    Merge pull request #1591 from nrspruit/disable_driver_in_order_lists_default
-  #    [L0] Disable Usage of Driver In order Lists by default
-  set(UNIFIED_RUNTIME_TAG 1e1f577262747d67fcb5c513de4a11bec67ea5db)
+  set(UNIFIED_RUNTIME_REPO "https://github.com/igchor/unified-runtime.git")
+  # commit 2e7a0782410fb87e605b0e84885061484f20a652
+  # Remove UMF from ur::common
+  set(UNIFIED_RUNTIME_TAG 630099b6f69ccafd35a773c0984954c3b8ddaef8)
 
   fetch_adapter_source(level_zero
     ${UNIFIED_RUNTIME_REPO}
@@ -187,7 +182,7 @@ set(UNIFIED_RUNTIME_COMMON_INCLUDE_DIR "${UNIFIED_RUNTIME_SOURCE_DIR}/source/com
 
 add_library(UnifiedRuntimeLoader ALIAS ur_loader)
 add_library(UnifiedRuntimeCommon ALIAS ur_common)
-add_library(UnifiedMemoryFramework ALIAS umf)
+add_library(UnifiedMemoryFramework ALIAS ur_umf)
 
 add_library(UnifiedRuntime-Headers INTERFACE)
 
