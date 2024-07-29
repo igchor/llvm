@@ -129,10 +129,12 @@ if(SYCL_PI_UR_USE_FETCH_CONTENT)
   # to link statically on windows
   if(WIN32)
     set(UMF_BUILD_SHARED_LIBRARY OFF CACHE INTERNAL "Build UMF shared library")
-    set(UMF_LINK_HWLOC_STATICALLY ON CACHE INTERNAL "static HWLOC")
-  else()
-    set(UMF_DISABLE_HWLOC ${SYCL_UMF_DISABLE_HWLOC} CACHE INTERNAL "Disable hwloc for UMF")
+    if(NOT SYCL_UMF_DISABLE_HWLOC)
+        set(UMF_LINK_HWLOC_STATICALLY ON CACHE INTERNAL "static HWLOC")
+    endif()
   endif()
+
+  set(UMF_DISABLE_HWLOC ${SYCL_UMF_DISABLE_HWLOC} CACHE INTERNAL "Disable hwloc for UMF")
 
   fetch_adapter_source(level_zero
     ${UNIFIED_RUNTIME_REPO}
