@@ -7,29 +7,29 @@
 // Allocate 2 items of 2MB. Free 2. Allocate 3 more of 2MB.
 
 // With no pooling: 1,2,3,4,5 allocs lead to ZE call.
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_DISABLE_USM_ALLOCATOR=1 %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_DISABLE_USM_ALLOCATOR=1 %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_DISABLE_USM_ALLOCATOR=1 %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=0 %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=0 %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=0 %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-NOPOOL
 
 // With pooling enabled and MaxPooolable=1MB: 1,2,3,4,5 allocs lead to ZE call.
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-12345
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-12345
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-12345
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-12345
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-12345
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;1M,4,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-12345
 
 // With pooling enabled and capacity=1: 1,2,4,5 allocs lead to ZE call.
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-1245
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-1245
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,1,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-1245
 
 // With pooling enabled and MaxPoolSize=2MB: 1,2,4,5 allocs lead to ZE call.
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-1245
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-1245
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-1245
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";2M;2M,4,64K" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-1245
 
 // With pooling enabled and SlabMinSize of 4 MB: 1,5 allocs lead to ZE call.
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-15
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-15
-// RUN: env UR_L0_DEBUG=1 SYCL_PI_LEVEL_ZERO_USM_RESIDENT=0 SYCL_PI_LEVEL_ZERO_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-15
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out h 2>&1 | FileCheck %s --check-prefix CHECK-15
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out d 2>&1 | FileCheck %s --check-prefix CHECK-15
+// RUN: env UR_L0_DEBUG=1 UR_L0_USM_ALLOCATOR=";;2M,4,4M" %{run} %t.out s 2>&1 | FileCheck %s --check-prefix CHECK-15
 
 #include "sycl/detail/core.hpp"
 
@@ -111,33 +111,33 @@ int main(int argc, char *argv[]) {
 // CHECK-NOPOOL: Test [[API:zeMemAllocHost|zeMemAllocDevice|zeMemAllocShared]]
 // CHECK-NOPOOL-NEXT:  ZE ---> zeDeviceGetMemoryAccessProperties
 // CHECK-NOPOOL-NEXT:  ZE ---> [[API]](
-// CHECK-NOPOOL-NEXT:  ZE ---> [[API]](
-// CHECK-NOPOOL-NEXT:  ZE ---> zeMemFree
-// CHECK-NOPOOL-NEXT:  ZE ---> zeMemFree
-// CHECK-NOPOOL-NEXT:  ZE ---> [[API]](
-// CHECK-NOPOOL-NEXT:  ZE ---> [[API]](
-// CHECK-NOPOOL-NEXT:  ZE ---> [[API]](
+// CHECK-NOPOOL:  ZE ---> [[API]](
+// CHECK-NOPOOL:  ZE ---> zeMemFree
+// CHECK-NOPOOL:  ZE ---> zeMemFree
+// CHECK-NOPOOL:  ZE ---> [[API]](
+// CHECK-NOPOOL:  ZE ---> [[API]](
+// CHECK-NOPOOL:  ZE ---> [[API]](
 
 // CHECK-12345: Test [[API:zeMemAllocHost|zeMemAllocDevice|zeMemAllocShared]]
 // CHECK-12345-NEXT:  ZE ---> zeDeviceGetMemoryAccessProperties
 // CHECK-12345-NEXT:  ZE ---> [[API]](
-// CHECK-12345-NEXT:  ZE ---> [[API]](
-// CHECK-12345-NEXT:  ZE ---> zeMemFree
-// CHECK-12345-NEXT:  ZE ---> zeMemFree
-// CHECK-12345-NEXT:  ZE ---> [[API]](
-// CHECK-12345-NEXT:  ZE ---> [[API]](
-// CHECK-12345-NEXT:  ZE ---> [[API]](
+// CHECK-12345:  ZE ---> [[API]](
+// CHECK-12345:  ZE ---> zeMemFree
+// CHECK-12345:  ZE ---> zeMemFree
+// CHECK-12345:  ZE ---> [[API]](
+// CHECK-12345:  ZE ---> [[API]](
+// CHECK-12345:  ZE ---> [[API]](
 
 // CHECK-1245: Test [[API:zeMemAllocHost|zeMemAllocDevice|zeMemAllocShared]]
 // CHECK-1245-NEXT:  ZE ---> zeDeviceGetMemoryAccessProperties
 // CHECK-1245-NEXT:  ZE ---> [[API]](
-// CHECK-1245-NEXT:  ZE ---> [[API]](
-// CHECK-1245-NEXT:  ZE ---> zeMemFree
-// CHECK-1245-NEXT:  ZE ---> [[API]](
-// CHECK-1245-NEXT:  ZE ---> [[API]](
+// CHECK-1245:  ZE ---> [[API]](
+// CHECK-1245:  ZE ---> zeMemFree
+// CHECK-1245:  ZE ---> [[API]](
+// CHECK-1245:  ZE ---> [[API]](
 
 // CHECK-15: Test [[API:zeMemAllocHost|zeMemAllocDevice|zeMemAllocShared]]
 // CHECK-15-NEXT:  ZE ---> zeDeviceGetMemoryAccessProperties
 // CHECK-15-NEXT:  ZE ---> [[API]](
-// CHECK-15-NEXT:  ZE ---> [[API]](
-// CHECK-15-NEXT:  ZE ---> zeMemFree
+// CHECK-15:  ZE ---> [[API]](
+// CHECK-15:  ZE ---> zeMemFree
