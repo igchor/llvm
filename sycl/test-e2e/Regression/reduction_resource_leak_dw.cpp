@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // XFAIL: windows
 // XFAIL-TRACKER: https://github.com/intel/llvm/issues/16418
 //

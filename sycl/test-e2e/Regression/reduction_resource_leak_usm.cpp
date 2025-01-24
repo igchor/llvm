@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // TODO: UR_L0_LEAKS_DEBUG=1 produces no output on Windows. Enable when fixed.
 // UNSUPPORTED: windows
 //

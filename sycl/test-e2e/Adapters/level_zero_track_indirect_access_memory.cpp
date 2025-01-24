@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // RUN: %{build} %level_zero_options %threads_lib -o %t.out
 // RUN: env SYCL_PI_LEVEL_ZERO_TRACK_INDIRECT_ACCESS_MEMORY=1 %{run} %t.out 2>&1 | FileCheck %s
 //

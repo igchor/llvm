@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 
 // RUN: %{build} -Wno-error=deprecated-declarations %level_zero_options -o %t.out
 // RUN: env UR_L0_DEBUG=1 SYCL_EAGER_INIT=1 %{run} %t.out 2>&1 | FileCheck %s

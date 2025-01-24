@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // RUN: %{build} %level_zero_options -o %t.ze.out
 // RUN: %{run} %t.ze.out
 

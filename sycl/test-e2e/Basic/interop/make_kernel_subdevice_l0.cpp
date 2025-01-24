@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, opencl, level_zero_dev_kit
+// REQUIRES: level_zero, opencl
 // RUN: %{build} %level_zero_options -lOpenCL -o %t.ze.out
 // RUN: %{run-unfiltered-devices} env ONEAPI_DEVICE_SELECTOR="level_zero:*" %t.ze.out
 

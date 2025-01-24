@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // RUN: %{build} -Wno-error=deprecated-declarations -Wno-error=#warnings -o %t.out %level_zero_options %threads_lib
 // RUN: %{run} %t.out
 //

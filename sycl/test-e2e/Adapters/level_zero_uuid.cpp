@@ -1,5 +1,5 @@
 // REQUIRES: aspect-ext_intel_device_info_uuid
-// REQUIRES: gpu, level_zero, level_zero_dev_kit
+// REQUIRES: gpu, level_zero
 
 // RUN: %{build} %level_zero_options -o %t.out
 // RUN: %{run} %t.out 2>&1 | FileCheck %s

@@ -1,5 +1,5 @@
 // REQUIRES: aspect-ext_intel_free_memory
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 //
 // RUN: %{build} %level_zero_options -o %t.out
 // RUN: env ZES_ENABLE_SYSMAN=1 %{run} %t.out 2>&1 | FileCheck %s

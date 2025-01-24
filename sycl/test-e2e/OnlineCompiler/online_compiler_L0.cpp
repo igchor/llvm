@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit, cm-compiler
+// REQUIRES: level_zero, cm-compiler
 // XFAIL: gpu
 // XFAIL-TRACKER: https://github.com/intel/llvm/issues/16406
 // RUN: %{build} -Wno-error=deprecated-declarations -DRUN_KERNELS %level_zero_options -o %t.out

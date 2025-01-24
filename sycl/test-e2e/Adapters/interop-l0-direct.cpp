@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // UNSUPPORTED: ze_debug
 
 // DeviceSanitizer will report error for cross context USM usage, turn it off

@@ -1,4 +1,4 @@
-// REQUIRES: level_zero, level_zero_dev_kit
+// REQUIRES: level_zero
 // L0 adapter incorrectly reports memory leaks because it doesn't take into
 // account direct calls to L0 API.
 // UNSUPPORTED: ze_debug
