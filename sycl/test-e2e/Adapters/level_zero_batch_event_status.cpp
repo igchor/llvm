@@ -16,28 +16,28 @@
 // done, rather than some other dynamic batching criteria.
 //
 // CHECK: ---> urEnqueueKernelLaunch
-// CHECK: ZE ---> zeCommandListAppendLaunchKernel
+// CHECK: zeCommandListAppendLaunchKernel
 // Shouldn't have closed until we see a urEventGetInfo
-// CHECK-NOT:  ZE ---> zeCommandListClose
-// CHECK-NOT:  ZE ---> zeCommandQueueExecuteCommandLists
+// CHECK-NOT:  zeCommandListClose
+// CHECK-NOT:  zeCommandQueueExecuteCommandLists
 // CHECK: ---> urEventGetInfo
 // Shouldn't see another urGetEventInfo until after closing command list
 // CHECK-NOT: ---> urEventGetInfo
 // Look for close and Execute after urEventGetInfo
-// CHECK:  ZE ---> zeCommandListClose
-// CHECK:  ZE ---> zeCommandQueueExecuteCommandLists
+// CHECK:  zeCommandListClose
+// CHECK:  zeCommandQueueExecuteCommandLists
 // CHECK: ---> urEventGetInfo
 // CHECK-NOT: ---> urEventsWait
 // CHECK: ---> urEnqueueKernelLaunch
-// CHECK: ZE ---> zeCommandListAppendLaunchKernel
+// CHECK: zeCommandListAppendLaunchKernel
 // CHECK: ---> urQueueFinish
 // Look for close and Execute after urQueueFinish
-// CHECK:  ZE ---> zeCommandListClose
-// CHECK:  ZE ---> zeCommandQueueExecuteCommandLists
+// CHECK:  zeCommandListClose
+// CHECK:  zeCommandQueueExecuteCommandLists
 // CHECK: ---> urEventGetInfo
 // No close and execute here, should already have happened.
-// CHECK-NOT:  ZE ---> zeCommandListClose
-// CHECK-NOT:  ZE ---> zeCommandQueueExecuteCommandLists
+// CHECK-NOT:  zeCommandListClose
+// CHECK-NOT:  zeCommandQueueExecuteCommandLists
 // CHECK-NOT: Test Fail
 // CHECK: Test Pass
 // UNSUPPORTED: ze_debug

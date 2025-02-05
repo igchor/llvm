@@ -14,19 +14,19 @@
 // MODE1-LABEL: Submitted all kernels
 // MODE1: ---> urEventWait
 // MODE1: ze_event_pool_desc_t flags set to: 1
-// MODE1: ZE ---> zeEventCreate(ZeEventPool, &ZeEventDesc, &ZeEvent)
-// MODE1: ZE ---> zeCommandListAppendWaitOnEvents(CommandList->first, 1, &ZeEvent)
-// MODE1-NEXT: ZE ---> zeCommandListAppendSignalEvent(CommandList->first, HostVisibleEvent->ZeEvent)
+// MODE1: zeEventCreate(ZeEventPool, &ZeEventDesc, &ZeEvent)
+// MODE1: zeCommandListAppendWaitOnEvents(CommandList->first, 1, &ZeEvent)
+// MODE1-NEXT: zeCommandListAppendSignalEvent(CommandList->first, HostVisibleEvent->ZeEvent)
 // MODE1: Completed all kernels
 
 // With the SYCL_PI_LEVEL_ZERO_DEVICE_SCOPE_EVENTS=2 mode look for pattern that
 // creates host-visible event just before command-list submission.
 //
 // MODE2: ze_event_pool_desc_t flags set to: 1
-// MODE2: ZE ---> zeEventCreate(ZeEventPool, &ZeEventDesc, &ZeEvent)
-// MODE2: ZE ---> zeCommandListAppendBarrier(CommandList->first, HostVisibleEvent->ZeEvent, 0, nullptr)
-// MODE2: ZE ---> zeCommandListClose(CommandList->first)
-// MODE2: ZE ---> zeCommandQueueExecuteCommandLists(ZeCommandQueue, 1, &ZeCommandList, CommandList->second.ZeFence)
+// MODE2: zeEventCreate(ZeEventPool, &ZeEventDesc, &ZeEvent)
+// MODE2: zeCommandListAppendBarrier(CommandList->first, HostVisibleEvent->ZeEvent, 0, nullptr)
+// MODE2: zeCommandListClose(CommandList->first)
+// MODE2: zeCommandQueueExecuteCommandLists(ZeCommandQueue, 1, &ZeCommandList, CommandList->second.ZeFence)
 // clang-format on
 
 #include <iostream>
