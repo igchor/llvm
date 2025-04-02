@@ -381,10 +381,11 @@ public:
       }
       return ResEvent;
     }
-    event ResEvent =
-        submit_impl(CGF, Self, Self, nullptr,
-                    /*CallerNeedsEvent=*/true, Loc, IsTopCodeLoc, SubmitInfo);
-    return discard_or_return(ResEvent);
+    return submit_v2_impl(CFG, Self, Loc, IsTopCodeLoc, SubmitInfo);
+    // event ResEvent =
+    //     submit_impl(CGF, Self, Self, nullptr,
+    //                 /*CallerNeedsEvent=*/true, Loc, IsTopCodeLoc, SubmitInfo);
+    // return discard_or_return(ResEvent);
   }
 
   void submit_without_event(const detail::type_erased_cgfo_ty &CGF,

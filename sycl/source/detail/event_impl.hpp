@@ -436,6 +436,8 @@ protected:
   // MEvent is lazily created in first ur handle query.
   bool MIsDefaultConstructed = false;
   bool MIsHostEvent = false;
+
+  bool MIsInOrderV2Event = false;
 };
 
 } // namespace detail

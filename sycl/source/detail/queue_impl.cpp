@@ -355,6 +355,37 @@ void queue_impl::addSharedEvent(const event &Event) {
   MEventsShared.push_back(Event);
 }
 
+event queue_impl::submit_v2_impl(const detail::type_erased_cgfo_ty &CGF,
+                                 const std::shared_ptr<queue_impl> &Self,
+                                 bool CallerNeedsEvent,
+                                 const detail::code_location &Loc,
+                                 bool IsTopCodeLoc,
+                                 const SubmissionInfo &SubmitInfo) {
+  handler Handler(Self, Self, nullptr, true);
+  Handler.saveCodeLoc(Loc, IsTopCodeLoc);
+  {
+    NestedCallsTracker tracker;
+    CGF(Handler);
+  }
+
+  bool IsKernel = Handler.getType() == CGType::Kernel;
+  bool KernelUsesAssert = false;
+
+  if (IsKernel)
+    // Kernel only uses assert if it's non interop one
+    KernelUsesAssert = !(Handler.MKernel && Handler.MKernel->isInterop()) &&
+                        ProgramManager::getInstance().kernelUsesAssert(
+                            Handler.MKernelName.c_str());
+
+  auto Event = MIsInorder ? finalizeHandlerInOrder(Handler)
+                          : finalizeHandlerOutOfOrder(Handler);
+
+  if (SubmitInfo.PostProcessorFunc()) {
+    auto &PostProcess = *SubmitInfo.PostProcessorFunc();
+    PostProcess(IsKernel, KernelUsesAssert, Event);
+  }
+}
+
 event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
                               const std::shared_ptr<queue_impl> &Self,
                               const std::shared_ptr<queue_impl> &PrimaryQueue,
@@ -364,13 +395,15 @@ event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
                               bool IsTopCodeLoc,
                               const SubmissionInfo &SubmitInfo) {
   handler Handler(Self, PrimaryQueue, SecondaryQueue, CallerNeedsEvent);
-  auto &HandlerImpl = detail::getSyclObjImpl(Handler);
+  //auto &HandlerImpl = detail::getSyclObjImpl(Handler);
   Handler.saveCodeLoc(Loc, IsTopCodeLoc);
 
   {
     NestedCallsTracker tracker;
     CGF(Handler);
   }
+
+
 
   // Scheduler will later omit events, that are not required to execute tasks.
   // Host and interop tasks, however, are not submitted to low-level runtimes
