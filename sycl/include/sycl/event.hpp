@@ -147,6 +147,8 @@ public:
   /// \return the backend associated with this platform
   backend get_backend() const noexcept;
 
+  ur_event_handle_t urHandle = nullptr;
+
 private:
   event(std::shared_ptr<detail::event_impl> EventImpl);
 
