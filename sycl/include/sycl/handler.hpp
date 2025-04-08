@@ -534,6 +534,8 @@ private:
   /// \return a SYCL event object representing the command group
   event finalize();
 
+  event finalize_v2();
+
   /// Constructs CG object of specific type, passes it to Scheduler and
   /// returns sycl::event object representing the command group.
   /// It's expected that the method is the latest method executed before
@@ -3433,6 +3435,8 @@ private:
   detail::code_location MCodeLoc = {};
   bool MIsFinalized = false;
   event MLastEvent;
+
+  std::vector<ur_event_handle_t> urEvents;
 
   // Make queue_impl class friend to be able to call finalize method.
   friend class detail::queue_impl;

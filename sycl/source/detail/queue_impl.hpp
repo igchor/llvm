@@ -353,6 +353,13 @@ public:
     return submit_with_event(CGF, Self, SI, Loc, IsTopCodeLoc);
   }
 
+  event queue_impl::submit_v2_impl(const detail::type_erased_cgfo_ty &CGF,
+    const std::shared_ptr<queue_impl> &Self,
+    bool CallerNeedsEvent,
+    const detail::code_location &Loc,
+    bool IsTopCodeLoc,
+    const SubmissionInfo &SubmitInfo);
+
   /// Submits a command group function object to the queue, in order to be
   /// scheduled for execution on the device.
   ///
@@ -381,7 +388,7 @@ public:
       }
       return ResEvent;
     }
-    return submit_v2_impl(CFG, Self, Loc, IsTopCodeLoc, SubmitInfo);
+    return submit_v2_impl(CGF, Self, true, Loc, IsTopCodeLoc, SubmitInfo);
     // event ResEvent =
     //     submit_impl(CGF, Self, Self, nullptr,
     //                 /*CallerNeedsEvent=*/true, Loc, IsTopCodeLoc, SubmitInfo);
