@@ -747,7 +747,7 @@ void SetArgBasedOnType(
     const std::shared_ptr<device_image_impl> &DeviceImageImpl,
     const std::function<void *(Requirement *Req)> &getMemAllocationFunc,
     const ContextImplPtr &ContextImpl, detail::ArgDesc &Arg,
-    size_t NextTrueIndex);
+    size_t NextTrueIndex, ur_event_handle_t *UREvent = nullptr);
 
 template <typename FuncT>
 void applyFuncOnFilteredArgs(const KernelArgMask *EliminatedArgMask,

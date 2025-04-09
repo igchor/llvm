@@ -33,6 +33,29 @@
 #include <sycl/info/info_desc.hpp>
 #include <sycl/stream.hpp>
 
+#include <detail/context_impl.hpp>
+#include <detail/event_impl.hpp>
+#include <detail/helpers.hpp>
+#include <detail/host_pipe_map_entry.hpp>
+#include <detail/kernel_bundle_impl.hpp>
+#include <detail/kernel_impl.hpp>
+#include <detail/kernel_info.hpp>
+#include <detail/memory_manager.hpp>
+#include <detail/program_manager/program_manager.hpp>
+#include <detail/queue_impl.hpp>
+#include <detail/sampler_impl.hpp>
+#include <detail/scheduler/commands.hpp>
+#include <detail/scheduler/scheduler.hpp>
+#include <detail/stream_impl.hpp>
+#include <detail/xpti_registry.hpp>
+#include <sycl/access/access.hpp>
+#include <sycl/backend_types.hpp>
+#include <sycl/detail/cg_types.hpp>
+#include <sycl/detail/helpers.hpp>
+#include <sycl/detail/kernel_desc.hpp>
+#include <sycl/detail/kernel_arg_mask.hpp>
+#include <sycl/sampler.hpp>
+
 #include "sycl/ext/oneapi/experimental/graph.hpp"
 #include <sycl/ext/oneapi/bindless_images_memory.hpp>
 #include <sycl/ext/oneapi/experimental/work_group_memory.hpp>
@@ -496,12 +519,104 @@ event handler::finalize_v2() {
               detail::retrieveKernelBinary(MQueue, MKernelName.c_str());
           assert(BinImage && "Failed to obtain a binary image.");
         }
-        enqueueImpKernel(MQueue, impl->MNDRDesc, impl->MArgs,
-                         KernelBundleImpPtr, MKernel, MKernelName.c_str(),
-                         urEvents, NewEvent, nullptr, impl->MKernelCacheConfig,
-                         impl->MKernelIsCooperative,
-                         impl->MKernelUsesClusterLaunch,
-                         impl->MKernelWorkGroupMemorySize, BinImage);
+        auto &ContextImpl = MQueue->getContextImplPtr();
+        auto &DeviceImpl = MQueue->getDeviceImplPtr();
+        ur_kernel_handle_t Kernel = nullptr;
+        std::mutex *KernelMutex = nullptr;
+        ur_program_handle_t Program = nullptr;
+        const KernelArgMask *EliminatedArgMask;
+      
+        std::shared_ptr<kernel_impl> SyclKernelImpl;
+        std::shared_ptr<device_image_impl> DeviceImageImpl;
+      
+        if ((SyclKernelImpl = KernelBundleImplPtr
+                                  ? KernelBundleImplPtr->tryGetKernel(
+                                        KernelName, KernelBundleImplPtr)
+                                  : std::shared_ptr<kernel_impl>{nullptr})) {
+          Kernel = SyclKernelImpl->getHandleRef();
+          DeviceImageImpl = SyclKernelImpl->getDeviceImage();
+      
+          Program = DeviceImageImpl->get_ur_program_ref();
+      
+          EliminatedArgMask = SyclKernelImpl->getKernelArgMask();
+          KernelMutex = SyclKernelImpl->getCacheMutex();
+        } else if (nullptr != MSyclKernel) {
+          assert(MSyclKernel->get_info<info::kernel::context>() ==
+                 Queue->get_context());
+          Kernel = MSyclKernel->getHandleRef();
+          Program = MSyclKernel->getProgramRef();
+      
+          // Non-cacheable kernels use mutexes from kernel_impls.
+          // TODO this can still result in a race condition if multiple SYCL
+          // kernels are created with the same native handle. To address this,
+          // we need to either store and use a ur_native_handle_t -> mutex map or
+          // reuse and return existing SYCL kernels from make_native to avoid
+          // their duplication in such cases.
+          KernelMutex = &MSyclKernel->getNoncacheableEnqueueMutex();
+          EliminatedArgMask = MSyclKernel->getKernelArgMask();
+        } else {
+          std::tie(Kernel, KernelMutex, EliminatedArgMask, Program) =
+              detail::ProgramManager::getInstance().getOrCreateKernel(
+                  ContextImpl, DeviceImpl, KernelName, NDRDesc);
+        }
+      
+        // We may need more events for the launch, so we make another reference.
+        std::vector<ur_event_handle_t> &EventsWaitList = urEvents;
+      
+        // Initialize device globals associated with this.
+        // TODO: optimize!
+        std::vector<ur_event_handle_t> DeviceGlobalInitEvents =
+            ContextImpl->initializeDeviceGlobals(Program, Queue);
+        if (!DeviceGlobalInitEvents.empty()) {
+          std::vector<ur_event_handle_t> EventsWithDeviceGlobalInits;
+          EventsWithDeviceGlobalInits.reserve(RawEvents.size() +
+                                              DeviceGlobalInitEvents.size());
+          EventsWithDeviceGlobalInits.insert(EventsWithDeviceGlobalInits.end(),
+                                             RawEvents.begin(), RawEvents.end());
+          EventsWithDeviceGlobalInits.insert(EventsWithDeviceGlobalInits.end(),
+                                             DeviceGlobalInitEvents.begin(),
+                                             DeviceGlobalInitEvents.end());
+          EventsWaitList = std::move(EventsWithDeviceGlobalInits);
+        }
+      
+        ur_result_t Error = UR_RESULT_SUCCESS;
+        {
+          // When KernelMutex is null, this means that in-memory caching is
+          // disabled, which means that kernel object is not shared, so no locking
+          // is necessary.
+          using LockT = std::unique_lock<std::mutex>;
+          auto Lock = KernelMutex ? LockT(*KernelMutex) : LockT();
+      
+          // Set SLM/Cache configuration for the kernel if non-default value is
+          // provided.
+          if (KernelCacheConfig == UR_KERNEL_CACHE_CONFIG_LARGE_SLM ||
+              KernelCacheConfig == UR_KERNEL_CACHE_CONFIG_LARGE_DATA) {
+            const AdapterPtr &Adapter = Queue->getAdapter();
+            Adapter->call<UrApiKind::urKernelSetExecInfo>(
+                Kernel, UR_KERNEL_EXEC_INFO_CACHE_CONFIG,
+                sizeof(ur_kernel_cache_config_t), nullptr, &KernelCacheConfig);
+          }
+      
+          detail::EventImplPtr OutDummyEvent = nullptr;
+          Error = SetKernelParamsAndLaunch(
+              Queue, Args, DeviceImageImpl, Kernel, NDRDesc, EventsWaitList,
+              OutDummyEvent, EliminatedArgMask, getMemAllocationFunc,
+              KernelIsCooperative, KernelUsesClusterLaunch, WorkGroupMemorySize,
+              BinImage, KernelName, &MLastEvent.urHandle); // TODO: free the previous event or let UR do that? Extend API to free the prvious event?
+      
+          const AdapterPtr &Adapter = Queue->getAdapter();
+          if (!SyclKernelImpl && !MSyclKernel) {
+            Adapter->call<UrApiKind::urKernelRelease>(Kernel);
+            Adapter->call<UrApiKind::urProgramRelease>(Program);
+          }
+        }
+        if (UR_RESULT_SUCCESS != Error) {
+          // If we have got non-success error code, let's analyze it to emit nice
+          // exception explaining what was wrong
+          detail::enqueue_kernel_launch::handleErrorOrWarning(Error, *DeviceImpl,
+                                                              Kernel, NDRDesc);
+        }
+
 #ifdef XPTI_ENABLE_INSTRUMENTATION
         // Emit signal only when event is created
         if (NewEvent != nullptr) {
@@ -514,38 +629,15 @@ event handler::finalize_v2() {
 #endif
       };
 
-      bool DiscardEvent = (MQueue->MDiscardEvents || !impl->MEventNeeded) &&
-                          MQueue->supportsDiscardingPiEvents();
-      if (DiscardEvent) {
-        // Kernel only uses assert if it's non interop one
-        bool KernelUsesAssert =
-            !(MKernel && MKernel->isInterop()) &&
-            detail::ProgramManager::getInstance().kernelUsesAssert(
-                MKernelName.c_str());
-        DiscardEvent = !KernelUsesAssert;
-      }
-
-      if (DiscardEvent) {
-        EnqueueKernel();
-        const auto &EventImpl = detail::getSyclObjImpl(MLastEvent);
-        EventImpl->setStateDiscarded();
-      } else {
-        NewEvent = detail::getSyclObjImpl(MLastEvent);
-        NewEvent->setQueue(MQueue);
-        NewEvent->setWorkerQueue(MQueue);
-        NewEvent->setContextImpl(MQueue->getContextImplPtr());
-        NewEvent->setStateIncomplete();
-        NewEvent->setSubmissionTime();
+        // NewEvent = detail::getSyclObjImpl(MLastEvent);
+        // NewEvent->setQueue(MQueue);
+        // NewEvent->setWorkerQueue(MQueue);
+        // NewEvent->setContextImpl(MQueue->getContextImplPtr());
+        // NewEvent->setStateIncomplete();
+        // NewEvent->setSubmissionTime();
 
         EnqueueKernel();
-        NewEvent->setEnqueued();
-        // connect returned event with dependent events
-        if (!MQueue->isInOrder()) {
-          NewEvent->getPreparedDepsEvents() = impl->CGData.MEvents;
-          NewEvent->cleanDepEventsThroughOneLevel();
-        }
-      }
-      return MLastEvent;
+        // NewEvent->setEnqueued();
     }
   }
 }

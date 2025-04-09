@@ -437,7 +437,7 @@ protected:
   bool MIsDefaultConstructed = false;
   bool MIsHostEvent = false;
 
-  bool MIsInOrderV2Event = false;
+  // bool MIsInOrderV2Event = false;
 };
 
 } // namespace detail

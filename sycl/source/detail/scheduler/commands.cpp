@@ -2390,7 +2390,7 @@ static ur_result_t SetKernelParamsAndLaunch(
     const std::function<void *(Requirement *Req)> &getMemAllocationFunc,
     bool IsCooperative, bool KernelUsesClusterLaunch,
     uint32_t WorkGroupMemorySize, const RTDeviceBinaryImage *BinImage,
-    const std::string &KernelName) {
+    const std::string &KernelName, ur_event_handle_t *UREventH) {
   assert(Queue && "Kernel submissions should have an associated queue");
   const AdapterPtr &Adapter = Queue->getAdapter();
 
@@ -2484,6 +2484,9 @@ static ur_result_t SetKernelParamsAndLaunch(
             OutEventImpl ? &UREvent : nullptr);
     if ((Error == UR_RESULT_SUCCESS) && OutEventImpl) {
       OutEventImpl->setHandle(UREvent);
+    }
+    if (Error == UR_RESULT_SUCCESS && UREventH) {
+      *UREventH = UREvent;
     }
     return Error;
   }
