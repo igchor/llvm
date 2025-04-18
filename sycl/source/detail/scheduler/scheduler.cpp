@@ -681,7 +681,7 @@ bool Scheduler::areEventsSafeForSchedulerBypass(
 
 bool Scheduler::areEventsSafeForSchedulerBypass(
     const std::vector<EventImplPtr> &DepEvents, const ContextImplPtr &Context) {
-
+  return false;
   return std::all_of(DepEvents.begin(), DepEvents.end(),
                      [&Context](const EventImplPtr &SyclEventImplPtr) {
                        return CheckEventReadiness(Context, SyclEventImplPtr);

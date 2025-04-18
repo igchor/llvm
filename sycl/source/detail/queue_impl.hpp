@@ -182,7 +182,7 @@ public:
 #endif
   }
 
-  sycl::detail::optional<event> getLastEvent();
+  sycl::detail::optional<event> getLastEvent(const std::shared_ptr<queue_impl> &Self);
 
 private:
   void queue_impl_interop(ur_queue_handle_t UrQueue) {
@@ -715,8 +715,44 @@ protected:
     // Hence, here is the lock for thread-safety.
     std::lock_guard<std::mutex> Lock{MMutex};
 
-    auto &EventToBuildDeps = MGraph.expired() ? MDefaultGraphDeps.LastEventPtr
-                                              : MExtGraphDeps.LastEventPtr;
+    assert(MGraph.expired());
+
+    std::optional<event> ExternalEvent = popExternalEvent();
+    if (ExternalEvent)
+      Handler.depends_on(std::move(*ExternalEvent));
+
+    if (LastHostTaskEvent) {
+      Handler.depends_on(std::move(LastHostTaskEvent));
+      // LastHostTaskEvent = nullptr;
+    } else if (Handler.getType() == CGType::CodeplayHostTask) {
+      // In the case where the last event was not a host task event and we are to run a
+      // host_task, we insert a barrier into the queue and use the resulting
+      // event as the dependency for the host_task.
+      Handler.depends_on(insertHelperBarrier(Handler));
+    } else {
+      // Normal tasks are already ordered by the queue.
+    }
+
+    auto EventRet = Handler.finalize();
+
+    if (getSyclObjImpl(EventRet)->isHost()) {
+      LastHostTaskEvent = getSyclObjImpl(EventRet);
+    }
+
+    MEmpty = false;
+
+    return EventRet;
+  }
+
+  template <typename HandlerType = handler>
+  event finalizeHandlerInOrderGraph(HandlerType &Handler) {
+    // Accessing and changing of an event isn't atomic operation.
+    // Hence, here is the lock for thread-safety.
+    std::lock_guard<std::mutex> Lock{MMutex};
+
+    assert(!MGraph.expired());
+
+    auto &EventToBuildDeps = MExtGraphDeps.LastEventPtr;
 
     // This dependency is needed for the following purposes:
     //    - host tasks are handled by the runtime and cannot be implicitly
@@ -808,7 +844,8 @@ protected:
           ProgramManager::getInstance().kernelUsesAssert(
               Handler.MKernelName.data());
 
-    auto Event = MIsInorder ? finalizeHandlerInOrder(Handler)
+              
+    auto Event = MIsInorder ? (MGraph.expired() ? finalizeHandlerInOrder(Handler) : finalizeHandlerInOrderGraph(Handler))
                             : finalizeHandlerOutOfOrder(Handler);
 
     auto &PostProcess = *PostProcessorFunc;
@@ -825,8 +862,8 @@ protected:
     if (PostProcessorFunc) {
       return finalizeHandlerPostProcess(Handler, PostProcessorFunc);
     } else {
-      return MIsInorder ? finalizeHandlerInOrder(Handler)
-                        : finalizeHandlerOutOfOrder(Handler);
+      return MIsInorder ? (MGraph.expired() ? finalizeHandlerInOrder(Handler) : finalizeHandlerInOrderGraph(Handler))
+      : finalizeHandlerOutOfOrder(Handler);
     }
   }
 
@@ -993,6 +1030,10 @@ protected:
 
   // the fallback implementation of profiling info
   bool MFallbackProfiling = false;
+
+  EventImplPtr LastHostTaskEvent;
+
+  bool MEmpty = true;
 
   // This event can be optionally provided by users for in-order queues to add
   // an additional dependency for the subsequent submission in to the queue.

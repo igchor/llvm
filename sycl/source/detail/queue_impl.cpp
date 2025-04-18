@@ -136,7 +136,7 @@ queue_impl::getExtendDependencyList(const std::vector<event> &DepEvents,
     return DepEvents;
 
   QueueLock.lock();
-  EventImplPtr ExtraEvent = MGraph.expired() ? MDefaultGraphDeps.LastEventPtr
+  EventImplPtr ExtraEvent = MGraph.expired() ? LastHostTaskEvent
                                              : MExtGraphDeps.LastEventPtr;
   std::optional<event> ExternalEvent = popExternalEvent();
 
@@ -148,6 +148,12 @@ queue_impl::getExtendDependencyList(const std::vector<event> &DepEvents,
     MutableVec.push_back(*ExternalEvent);
   if (ExtraEvent)
     MutableVec.push_back(detail::createSyclObjFromImpl<event>(ExtraEvent));
+
+  if (ExtraEvent == LastHostTaskEvent) {
+    // Consume the event, next operations will rely on UR queue ordering
+    // LastHostTaskEvent = nullptr;
+  }
+
   return MutableVec;
 }
 
@@ -282,20 +288,23 @@ event queue_impl::memcpyFromDeviceGlobal(
       DeviceGlobalPtr, IsDeviceImageScope, Self, NumBytes, Offset, Dest);
 }
 
-sycl::detail::optional<event> queue_impl::getLastEvent() {
+sycl::detail::optional<event> queue_impl::getLastEvent(const std::shared_ptr<queue_impl> &Self) {
   // The external event is required to finish last if set, so it is considered
   // the last event if present.
   if (std::optional<event> ExternalEvent = MInOrderExternalEvent.read())
     return ExternalEvent;
 
   std::lock_guard<std::mutex> Lock{MMutex};
-  if (MGraph.expired() && !MDefaultGraphDeps.LastEventPtr)
+  if (MGraph.expired() && MEmpty)
     return std::nullopt;
   if (MDiscardEvents)
     return createDiscardedEvent();
-  if (!MGraph.expired() && MExtGraphDeps.LastEventPtr)
+  if (!MGraph.expired() && MExtGraphDeps.LastEventPtr) {
     return detail::createSyclObjFromImpl<event>(MExtGraphDeps.LastEventPtr);
-  return detail::createSyclObjFromImpl<event>(MDefaultGraphDeps.LastEventPtr);
+  }
+  if (LastHostTaskEvent)
+   return detail::createSyclObjFromImpl<event>(LastHostTaskEvent);
+  return detail::createSyclObjFromImpl<event>(insertMarkerEvent(Self));
 }
 
 void queue_impl::addEvent(const event &Event) {
@@ -342,6 +351,7 @@ event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
 
   auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc());
 
+  // TODO: needed for in order if it's not host task?
   addEvent(Event);
 
   const auto &EventImpl = detail::getSyclObjImpl(Event);
@@ -406,17 +416,15 @@ event queue_impl::submitMemOpHelper(const std::shared_ptr<queue_impl> &Self,
                                 ExpandedDepEvents, MContext)) {
       if ((MDiscardEvents || !CallerNeedsEvent) &&
           supportsDiscardingPiEvents()) {
+        // TODO: remove this code when clearing discard events
         NestedCallsTracker tracker;
         MemOpFunc(MemOpArgs..., getUrEvents(ExpandedDepEvents),
                   /*PiEvent*/ nullptr, /*EventImplPtr*/ nullptr);
 
         event DiscardedEvent = createDiscardedEvent();
-        if (isInOrder()) {
+        if (isInOrder() && !MGraph.expired()) {
           // Store the discarded event for proper in-order dependency tracking.
-          auto &EventToStoreIn = MGraph.expired()
-                                     ? MDefaultGraphDeps.LastEventPtr
-                                     : MExtGraphDeps.LastEventPtr;
-          EventToStoreIn = detail::getSyclObjImpl(DiscardedEvent);
+          MExtGraphDeps.LastEventPtr = detail::getSyclObjImpl(DiscardedEvent);
         }
         return DiscardedEvent;
       }
@@ -443,10 +451,8 @@ event queue_impl::submitMemOpHelper(const std::shared_ptr<queue_impl> &Self,
         }
       }
 
-      if (isInOrder()) {
-        auto &EventToStoreIn = MGraph.expired() ? MDefaultGraphDeps.LastEventPtr
-                                                : MExtGraphDeps.LastEventPtr;
-        EventToStoreIn = EventImpl;
+      if (isInOrder() && !MGraph.expired()) {
+        MExtGraphDeps.LastEventPtr = EventImpl;
       }
 
       return discard_or_return(ResEvent);
@@ -684,22 +690,9 @@ ur_native_handle_t queue_impl::getNative(int32_t &NativeHandleDesc) const {
 }
 
 bool queue_impl::ext_oneapi_empty() const {
-  // If we have in-order queue where events are not discarded then just check
-  // the status of the last event.
-  if (isInOrder() && !MDiscardEvents) {
-    std::lock_guard<std::mutex> Lock(MMutex);
-    // If there is no last event we know that no work has been submitted, so it
-    // must be trivially empty.
-    if (!MDefaultGraphDeps.LastEventPtr)
-      return true;
-    // Otherwise, check if the last event is finished.
-    // Note that we fall back to the backend query if the event was discarded,
-    // which may happend despite the queue not being a discard event queue.
-    if (!MDefaultGraphDeps.LastEventPtr->isDiscarded())
-      return MDefaultGraphDeps.LastEventPtr
-                 ->get_info<info::event::command_execution_status>() ==
-             info::event_command_status::complete;
-  }
+  // TODO: thread safe?
+  if (MGraph.expired() && MEmpty)
+    return true;
 
   // Check the status of the backend queue if this is not a host queue.
   ur_bool_t IsReady = false;
