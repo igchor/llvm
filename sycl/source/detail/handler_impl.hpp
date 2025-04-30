@@ -31,9 +31,8 @@ enum class HandlerSubmissionState : std::uint8_t {
 
 class handler_impl {
 public:
-  handler_impl(queue_impl *SubmissionSecondaryQueue, bool EventNeeded)
-      : MSubmissionSecondaryQueue(SubmissionSecondaryQueue),
-        MEventNeeded(EventNeeded) {};
+  handler_impl(queue_impl *SubmissionSecondaryQueue)
+      : MSubmissionSecondaryQueue(SubmissionSecondaryQueue) {};
 
   handler_impl(
       std::shared_ptr<ext::oneapi::experimental::detail::graph_impl> Graph)
@@ -70,10 +69,6 @@ public:
   /// Pointer to the secondary queue implementation. Nullptr if no
   /// secondary queue fallback was given in the associated submission.
   queue_impl *MSubmissionSecondaryQueue = nullptr;
-
-  /// Bool stores information about whether the event resulting from the
-  /// corresponding work is required.
-  bool MEventNeeded = true;
 
   // Stores auxiliary resources used by internal operations.
   std::vector<std::shared_ptr<const void>> MAuxiliaryResources;

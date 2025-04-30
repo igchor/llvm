@@ -313,8 +313,8 @@ fill_copy_args(detail::handler_impl *impl,
 } // namespace detail
 
 handler::handler(std::shared_ptr<detail::queue_impl> Queue,
-                 bool CallerNeedsEvent)
-    : impl(std::make_shared<detail::handler_impl>(nullptr, CallerNeedsEvent)),
+                 bool)
+    : impl(std::make_shared<detail::handler_impl>(nullptr)),
       MQueue(std::move(Queue)) {}
 
 #ifndef __INTEL_PREVIEW_BREAKING_CHANGES
@@ -323,16 +323,14 @@ handler::handler(std::shared_ptr<detail::queue_impl> Queue,
 handler::handler(
     std::shared_ptr<detail::queue_impl> Queue,
     [[maybe_unused]] std::shared_ptr<detail::queue_impl> PrimaryQueue,
-    std::shared_ptr<detail::queue_impl> SecondaryQueue, bool CallerNeedsEvent)
-    : impl(std::make_shared<detail::handler_impl>(SecondaryQueue.get(),
-                                                  CallerNeedsEvent)),
+    std::shared_ptr<detail::queue_impl> SecondaryQueue, bool)
+    : impl(std::make_shared<detail::handler_impl>(SecondaryQueue.get())),
       MQueue(Queue) {}
 #endif
 
 handler::handler(std::shared_ptr<detail::queue_impl> Queue,
-                 detail::queue_impl *SecondaryQueue, bool CallerNeedsEvent)
-    : impl(std::make_shared<detail::handler_impl>(SecondaryQueue,
-                                                  CallerNeedsEvent)),
+                 detail::queue_impl *SecondaryQueue, bool)
+    : impl(std::make_shared<detail::handler_impl>(SecondaryQueue)),
       MQueue(std::move(Queue)) {}
 
 handler::handler(
@@ -389,6 +387,10 @@ void handler::setHandlerKernelBundle(kernel Kernel) {
 }
 
 event handler::finalize() {
+  return finalize(true);
+}
+
+event handler::finalize(bool CallerNeedsEvent) {
   // This block of code is needed only for reduction implementation.
   // It is harmless (does nothing) for everything else.
   if (MIsFinalized)
@@ -505,7 +507,7 @@ event handler::finalize() {
       const detail::EventImplPtr &LastEventImpl =
           detail::getSyclObjImpl(MLastEvent);
 
-      bool DiscardEvent = (MQueue->MDiscardEvents || !impl->MEventNeeded) &&
+      bool DiscardEvent = (MQueue->MDiscardEvents || !CallerNeedsEvent) &&
                           MQueue->supportsDiscardingPiEvents();
       if (DiscardEvent) {
         // Kernel only uses assert if it's non interop one
@@ -827,7 +829,7 @@ event handler::finalize() {
   }
 
   detail::EventImplPtr Event = detail::Scheduler::getInstance().addCG(
-      std::move(CommandGroup), std::move(MQueue), impl->MEventNeeded);
+      std::move(CommandGroup), std::move(MQueue), CallerNeedsEvent);
 
   MLastEvent = detail::createSyclObjFromImpl<event>(Event);
   return MLastEvent;
@@ -2161,8 +2163,6 @@ void handler::registerDynamicParameter(
   }
   impl->MDynamicParameters.emplace_back(Paraimpl.get(), ArgIndex);
 }
-
-bool handler::eventNeeded() const { return impl->MEventNeeded; }
 
 void *handler::storeRawArg(const void *Ptr, size_t Size) {
   impl->CGData.MArgsStorage.emplace_back(Size);

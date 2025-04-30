@@ -387,8 +387,8 @@ public:
                             const SubmissionInfo &SubmitInfo,
                             const detail::code_location &Loc,
                             bool IsTopCodeLoc) {
-    submit_impl(CGF, Self, SubmitInfo.SecondaryQueue().get(),
-                /*CallerNeedsEvent=*/false, Loc, IsTopCodeLoc, SubmitInfo);
+    submit_without_event_impl(CGF, Self, SubmitInfo.SecondaryQueue().get(),
+                Loc, IsTopCodeLoc, SubmitInfo);
   }
 
   /// Performs a blocking wait for the completion of all enqueued tasks in the
@@ -610,6 +610,25 @@ public:
     MStreamsServiceEvents.push_back(Event);
   }
 
+  void registerStreamFlushEvents(const std::shared_ptr<queue_impl> &Self,
+    queue_impl *SecondaryQueue, const detail::code_location &Loc,
+    bool IsTopCodeLoc, std::vector<StreamImplPtr>&& Streams, const EventImplPtr& Event) {
+    for (auto &Stream : Streams) {
+      // We don't want stream flushing to be blocking operation that is why submit
+      // a host task to print stream buffer. It will fire up as soon as the kernel
+      // finishes execution.
+      auto L = [&](handler &ServiceCGH) {
+        Stream->generateFlushCommand(ServiceCGH);
+      };
+      detail::type_erased_cgfo_ty CGF{L};
+      event FlushEvent =
+          submit_impl(CGF, Self, SecondaryQueue, /*CallerNeedsEvent*/ true, Loc,
+                      IsTopCodeLoc, {});
+      Event->attachEventToCompleteWeak(detail::getSyclObjImpl(FlushEvent));
+      registerStreamServiceEvent(detail::getSyclObjImpl(FlushEvent));
+    }
+  }
+
   bool ext_oneapi_empty() const;
 
   event memcpyToDeviceGlobal(const std::shared_ptr<queue_impl> &Self,
@@ -721,10 +740,25 @@ protected:
   }
 
   template <typename HandlerType = handler>
-  event finalizeHandlerInOrder(HandlerType &Handler,
-                               std::unique_lock<std::mutex> &Lock) {
-    Lock.lock();
+  void finalizeHandlerInOrderWithoutEvent(HandlerType &Handler) {
+    MEmpty = false;
 
+    assert(Handler.getType() != CGType::CodeplayHostTask);
+    assert(MGraph.expired());
+    assert(MExtGraphDeps.LastEventPtr == nullptr);
+
+    // If there is an external event set, add it as a dependency and clear it.
+    // We do not need to hold the lock as MLastEventMtx will ensure the last
+    // event reflects the corresponding external event dependence as well.
+    std::optional<event> ExternalEvent = popExternalEvent();
+    if (ExternalEvent)
+      Handler.depends_on(*ExternalEvent);
+
+    Handler.finalize(false);
+  }
+
+  template <typename HandlerType = handler>
+  event finalizeHandlerInOrder(HandlerType &Handler) {
     MEmpty = false;
 
     if (Handler.getType() == CGType::CodeplayHostTask) {
@@ -766,10 +800,8 @@ protected:
   }
 
   template <typename HandlerType = handler>
-  event finalizeHandlerOutOfOrder(HandlerType &Handler,
-                                  std::unique_lock<std::mutex> &Lock) {
+  event finalizeHandlerOutOfOrder(HandlerType &Handler) {
     const CGType Type = getSyclObjImpl(Handler)->MCGType;
-    Lock.lock();
 
     MEmpty = false;
 
@@ -809,8 +841,7 @@ protected:
   template <typename HandlerType = handler>
   event finalizeHandlerPostProcess(
       HandlerType &Handler,
-      const optional<SubmitPostProcessF> &PostProcessorFunc,
-      std::unique_lock<std::mutex> &Lock) {
+      const optional<SubmitPostProcessF> &PostProcessorFunc) {
     bool IsKernel = Handler.getType() == CGType::Kernel;
     bool KernelUsesAssert = false;
 
@@ -821,8 +852,8 @@ protected:
           ProgramManager::getInstance().kernelUsesAssert(
               Handler.MKernelName.data());
 
-    auto Event = MIsInorder ? finalizeHandlerInOrder(Handler, Lock)
-                            : finalizeHandlerOutOfOrder(Handler, Lock);
+    auto Event = MIsInorder ? finalizeHandlerInOrder(Handler)
+                            : finalizeHandlerOutOfOrder(Handler);
 
     auto &PostProcess = *PostProcessorFunc;
 
@@ -834,13 +865,12 @@ protected:
   // template is needed for proper unit testing
   template <typename HandlerType = handler>
   event finalizeHandler(HandlerType &Handler,
-                        const optional<SubmitPostProcessF> &PostProcessorFunc,
-                        std::unique_lock<std::mutex> &Lock) {
+                        const optional<SubmitPostProcessF> &PostProcessorFunc) {
     if (PostProcessorFunc) {
-      return finalizeHandlerPostProcess(Handler, PostProcessorFunc, Lock);
+      return finalizeHandlerPostProcess(Handler, PostProcessorFunc);
     } else {
-      return MIsInorder ? finalizeHandlerInOrder(Handler, Lock)
-                        : finalizeHandlerOutOfOrder(Handler, Lock);
+      return MIsInorder ? finalizeHandlerInOrder(Handler)
+                        : finalizeHandlerOutOfOrder(Handler);
     }
   }
 
@@ -881,6 +911,21 @@ protected:
                     queue_impl *SecondaryQueue, bool CallerNeedsEvent,
                     const detail::code_location &Loc, bool IsTopCodeLoc,
                     const SubmissionInfo &SubmitInfo);
+
+  /// Performs command group submission to the queue without retuning an event.
+  ///
+  /// \param CGF is a function object containing command group.
+  /// \param Self is a pointer to this queue.
+  /// \param SecondaryQueue is a pointer to the secondary queue.
+  /// \param CallerNeedsEvent is a boolean indicating whether the event is
+  ///        required by the user after the call.
+  /// \param Loc is the code location of the submit call (default argument)
+  /// \param SubmitInfo is additional optional information for the submission.
+  void submit_without_event_impl(const detail::type_erased_cgfo_ty &CGF,
+    const std::shared_ptr<queue_impl> &Self,
+    queue_impl *SecondaryQueue,
+    const detail::code_location &Loc, bool IsTopCodeLoc,
+    const SubmissionInfo &SubmitInfo);
 
   /// Helper function for submitting a memory operation with a handler.
   /// \param Self is a shared_ptr to this queue.

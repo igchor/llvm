@@ -1007,8 +1007,6 @@ private:
            Size == 32 || Size == 64 || Size == 128;
   }
 
-  bool eventNeeded() const;
-
   template <int Dims, typename LambdaArgType> struct TransformUserItemType {
     using type = std::conditional_t<
         std::is_convertible_v<nd_item<Dims>, LambdaArgType>, nd_item<Dims>,

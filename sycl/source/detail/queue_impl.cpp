@@ -313,13 +313,67 @@ void queue_impl::addEvent(const event &Event) {
   }
 }
 
+void queue_impl::submit_without_event_impl(const detail::type_erased_cgfo_ty &CGF,
+  const std::shared_ptr<queue_impl> &Self,
+  queue_impl *SecondaryQueue,
+  const detail::code_location &Loc, bool IsTopCodeLoc,
+  const SubmissionInfo &SubmitInfo) {
+    handler Handler(Self, SecondaryQueue);
+    auto &HandlerImpl = detail::getSyclObjImpl(Handler);
+  #ifdef XPTI_ENABLE_INSTRUMENTATION
+    if (xptiTraceEnabled()) {
+      Handler.saveCodeLoc(Loc, IsTopCodeLoc);
+    }
+  #endif
+  
+    {
+      NestedCallsTracker tracker;
+      CGF(Handler);
+    }
+  
+    // Scheduler will later omit events, that are not required to execute tasks.
+    // Host and interop tasks, however, are not submitted to low-level runtimes
+    // and require separate dependency management.
+    const CGType Type = HandlerImpl->MCGType;
+    std::vector<StreamImplPtr> Streams;
+    if (Type == CGType::Kernel)
+      Streams = std::move(Handler.MStreamStorage);
+  
+    HandlerImpl->MEventMode = SubmitInfo.EventMode();
+  
+    std::unique_lock<std::mutex> Lock(MMutex);
+
+    if (isInOrder() && !MHostTaskMode && Streams.empty() && Type != CGType::CodeplayHostTask && !SubmitInfo.PostProcessorFunc()) {
+      finalizeHandlerInOrderWithoutEvent(Handler);
+      return;
+    }
+
+    auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc());
+  
+    if (isInOrder() && !MHostTaskMode && Streams.empty()) {
+      // NOP
+      //
+      // For in-order queues we rely on UR queue ordering.
+      // We only need to keep the event if host task are used
+      // (to ensure proper ordering) or if streams are used.
+    } else {
+      addEvent(Event);
+    }
+  
+    Lock.unlock();
+  
+    const auto &EventImpl = detail::getSyclObjImpl(Event);
+    registerStreamFlushEvents(Self, SecondaryQueue, Loc, IsTopCodeLoc,
+                            std::move(Streams), EventImpl);
+}
+
 event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
                               const std::shared_ptr<queue_impl> &Self,
                               queue_impl *SecondaryQueue, bool CallerNeedsEvent,
                               const detail::code_location &Loc,
                               bool IsTopCodeLoc,
                               const SubmissionInfo &SubmitInfo) {
-  handler Handler(Self, SecondaryQueue, CallerNeedsEvent);
+  handler Handler(Self, SecondaryQueue);
   auto &HandlerImpl = detail::getSyclObjImpl(Handler);
 #ifdef XPTI_ENABLE_INSTRUMENTATION
   if (xptiTraceEnabled()) {
@@ -342,8 +396,8 @@ event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
 
   HandlerImpl->MEventMode = SubmitInfo.EventMode();
 
-  std::unique_lock<std::mutex> Lock(MMutex, std::defer_lock);
-  auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc(), Lock);
+  std::unique_lock<std::mutex> Lock(MMutex);
+  auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc());
 
   if (isInOrder() && !MHostTaskMode && Streams.empty()) {
     // NOP
@@ -358,20 +412,8 @@ event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
   Lock.unlock();
 
   const auto &EventImpl = detail::getSyclObjImpl(Event);
-  for (auto &Stream : Streams) {
-    // We don't want stream flushing to be blocking operation that is why submit
-    // a host task to print stream buffer. It will fire up as soon as the kernel
-    // finishes execution.
-    auto L = [&](handler &ServiceCGH) {
-      Stream->generateFlushCommand(ServiceCGH);
-    };
-    detail::type_erased_cgfo_ty CGF{L};
-    event FlushEvent =
-        submit_impl(CGF, Self, SecondaryQueue, /*CallerNeedsEvent*/ true, Loc,
-                    IsTopCodeLoc, {});
-    EventImpl->attachEventToCompleteWeak(detail::getSyclObjImpl(FlushEvent));
-    registerStreamServiceEvent(detail::getSyclObjImpl(FlushEvent));
-  }
+  registerStreamFlushEvents(Self, SecondaryQueue, Loc, IsTopCodeLoc,
+                          std::move(Streams), EventImpl);
 
   return Event;
 }
@@ -409,9 +451,9 @@ event queue_impl::submit_impl(const detail::type_erased_cgfo_ty &CGF,
 
   HandlerImpl->MEventMode = SubmitInfo.EventMode();
 
-  std::unique_lock<std::mutex> Lock(MMutex, std::defer_lock);
+  std::unique_lock<std::mutex> Lock(MMutex);
 
-  auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc(), Lock);
+  auto Event = finalizeHandler(Handler, SubmitInfo.PostProcessorFunc());
   addEvent(Event);
 
   Lock.unlock();
