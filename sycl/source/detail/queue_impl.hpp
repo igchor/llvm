@@ -180,7 +180,8 @@ public:
 #endif
   }
 
-  sycl::detail::optional<event> getLastEvent();
+  sycl::detail::optional<event>
+  getLastEvent(const std::shared_ptr<queue_impl> &Self);
 
 private:
   void queue_impl_interop(ur_queue_handle_t UrQueue) {
@@ -720,10 +721,15 @@ protected:
   }
 
   template <typename HandlerType = handler>
-  event finalizeHandlerInOrder(HandlerType &Handler) {
-    // Accessing and changing of an event isn't atomic operation.
-    // Hence, here is the lock for thread-safety.
-    std::lock_guard<std::mutex> Lock{MMutex};
+  event finalizeHandlerInOrder(HandlerType &Handler,
+                               std::unique_lock<std::mutex> &Lock) {
+    Lock.lock();
+
+    MEmpty = false;
+
+    if (Handler.getType() == CGType::CodeplayHostTask) {
+      MHostTaskMode = true;
+    }
 
     auto &EventToBuildDeps = MGraph.expired() ? MDefaultGraphDeps.LastEventPtr
                                               : MExtGraphDeps.LastEventPtr;
@@ -735,23 +741,12 @@ protected:
     //    by a host task. This dependency allows to build the enqueue order in
     //    the RT but will not be passed to the backend. See getPIEvents in
     //    Command.
-    if (EventToBuildDeps) {
-      // In the case where the last event was discarded and we are to run a
-      // host_task, we insert a barrier into the queue and use the resulting
-      // event as the dependency for the host_task.
-      // Note that host_task events can never be discarded, so this will not
-      // insert barriers between host_task enqueues.
-      if (EventToBuildDeps->isDiscarded() &&
-          Handler.getType() == CGType::CodeplayHostTask)
-        EventToBuildDeps = insertHelperBarrier(Handler);
-
+    if (EventToBuildDeps && Handler.getType() != CGType::AsyncAlloc) {
       // depends_on after an async alloc is explicitly disallowed. Async alloc
       // handles in order queue dependencies preemptively, so we skip them.
       // Note: This could be improved by moving the handling of dependencies
       // to before calling the CGF.
-      if (!EventToBuildDeps->isDiscarded() &&
-          !(Handler.getType() == CGType::AsyncAlloc))
-        Handler.depends_on(EventToBuildDeps);
+      Handler.depends_on(EventToBuildDeps);
     }
 
     // If there is an external event set, add it as a dependency and clear it.
@@ -762,15 +757,22 @@ protected:
       Handler.depends_on(*ExternalEvent);
 
     auto EventRet = Handler.finalize();
-    EventToBuildDeps = getSyclObjImpl(EventRet);
+
+    if (MHostTaskMode) {
+      EventToBuildDeps = getSyclObjImpl(EventRet);
+    }
 
     return EventRet;
   }
 
   template <typename HandlerType = handler>
-  event finalizeHandlerOutOfOrder(HandlerType &Handler) {
+  event finalizeHandlerOutOfOrder(HandlerType &Handler,
+                                  std::unique_lock<std::mutex> &Lock) {
     const CGType Type = getSyclObjImpl(Handler)->MCGType;
-    std::lock_guard<std::mutex> Lock{MMutex};
+    Lock.lock();
+
+    MEmpty = false;
+
     // The following code supports barrier synchronization if host task is
     // involved in the scenario. Native barriers cannot handle host task
     // dependency so in the case where some commands were not enqueued
@@ -807,7 +809,8 @@ protected:
   template <typename HandlerType = handler>
   event finalizeHandlerPostProcess(
       HandlerType &Handler,
-      const optional<SubmitPostProcessF> &PostProcessorFunc) {
+      const optional<SubmitPostProcessF> &PostProcessorFunc,
+      std::unique_lock<std::mutex> &Lock) {
     bool IsKernel = Handler.getType() == CGType::Kernel;
     bool KernelUsesAssert = false;
 
@@ -818,8 +821,8 @@ protected:
           ProgramManager::getInstance().kernelUsesAssert(
               Handler.MKernelName.data());
 
-    auto Event = MIsInorder ? finalizeHandlerInOrder(Handler)
-                            : finalizeHandlerOutOfOrder(Handler);
+    auto Event = MIsInorder ? finalizeHandlerInOrder(Handler, Lock)
+                            : finalizeHandlerOutOfOrder(Handler, Lock);
 
     auto &PostProcess = *PostProcessorFunc;
 
@@ -831,12 +834,13 @@ protected:
   // template is needed for proper unit testing
   template <typename HandlerType = handler>
   event finalizeHandler(HandlerType &Handler,
-                        const optional<SubmitPostProcessF> &PostProcessorFunc) {
+                        const optional<SubmitPostProcessF> &PostProcessorFunc,
+                        std::unique_lock<std::mutex> &Lock) {
     if (PostProcessorFunc) {
-      return finalizeHandlerPostProcess(Handler, PostProcessorFunc);
+      return finalizeHandlerPostProcess(Handler, PostProcessorFunc, Lock);
     } else {
-      return MIsInorder ? finalizeHandlerInOrder(Handler)
-                        : finalizeHandlerOutOfOrder(Handler);
+      return MIsInorder ? finalizeHandlerInOrder(Handler, Lock)
+                        : finalizeHandlerOutOfOrder(Handler, Lock);
     }
   }
 
@@ -1005,6 +1009,12 @@ protected:
   };
 
   const bool MIsInorder;
+
+  // Specifies whether this queue uses host tasks. If yes, then event
+  // from all operations need to be recorded for proper synchronization.
+  bool MHostTaskMode = false;
+
+  bool MEmpty = true;
 
   std::vector<EventImplPtr> MStreamsServiceEvents;
   std::mutex MStreamsServiceEventsMutex;
