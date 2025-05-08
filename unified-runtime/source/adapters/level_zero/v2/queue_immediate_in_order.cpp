@@ -63,6 +63,41 @@ static event_flags_t eventFlagsFromQueueFlags(ur_queue_flags_t flags) {
   return eventFlags;
 }
 
+void ur_queue_immediate_in_order_t::workerFunc() {
+  while (!finishThread.load()) {
+    size_t offset;
+    size_t size = ringbuf_consume(&ringbuff, &offset);
+
+    for (int i = 0; i < size; i++) {
+      auto params = workerQueue[(offset + i) % workerQueueSize];
+      auto commandListLocked = commandListManager.lock();
+
+      ze_kernel_handle_t hZeKernel =
+          params.hKernel->getZeHandle(commandListLocked->device);
+
+      params.hKernel->prepareForSubmission(
+          commandListLocked->context, commandListLocked->device,
+          params.pGlobalWorkOffset, params.workDim, params.WG[0], params.WG[1],
+          params.WG[2], nullptr);
+
+      auto zeSignalEvent = commandListLocked->getSignalEvent(
+          params.phEvent, UR_COMMAND_KERNEL_LAUNCH);
+      // TODO: events should be copied
+      auto waitListView = commandListLocked->getWaitListView(
+          params.phEventWaitList, params.numEventsInWaitList);
+
+      zeCommandListAppendLaunchKernel(commandListLocked->zeCommandList.get(),
+                                      hZeKernel, &params.ZeGoupCount,
+                                      zeSignalEvent, waitListView.num,
+                                      waitListView.handles);
+
+      // TODO: pass error to main thread
+    }
+
+    ringbuf_release(&ringbuff, size);
+  }
+}
+
 ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice,
     const ur_queue_properties_t *pProps)
@@ -75,7 +110,10 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
               ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS,
               getZePriority(pProps ? pProps->flags : ur_queue_flags_t{}),
               getZeIndex(pProps)),
-          eventFlagsFromQueueFlags(flags), this) {}
+          eventFlagsFromQueueFlags(flags), this),
+      workerThread(&ur_queue_immediate_in_order_t::workerFunc, this),
+      workerQueue(workerQueueSize), ringbuff(1, workerQueueSize),
+      worker(ringbuf_register(&ringbuff, 0)) {}
 
 ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice,
@@ -92,7 +130,10 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
                   }
                 }
               }),
-          eventFlagsFromQueueFlags(flags), this) {}
+          eventFlagsFromQueueFlags(flags), this),
+      workerThread(&ur_queue_immediate_in_order_t::workerFunc, this),
+      workerQueue(workerQueueSize), ringbuff(1, workerQueueSize),
+      worker(ringbuf_register(&ringbuff, 0)) {}
 
 ze_event_handle_t ur_queue_immediate_in_order_t::getSignalEvent(
     locked<ur_command_list_manager> &commandList, ur_event_handle_t *hUserEvent,
@@ -178,7 +219,9 @@ ur_result_t ur_queue_immediate_in_order_t::queueFlush() {
 
 ur_queue_immediate_in_order_t::~ur_queue_immediate_in_order_t() {
   try {
+    finishThread.store(true);
     UR_CALL_THROWS(queueFinish());
+    workerThread.join();
   } catch (...) {
     // Ignore errors during destruction
   }
@@ -191,10 +234,43 @@ ur_result_t ur_queue_immediate_in_order_t::enqueueKernelLaunch(
     const ur_event_handle_t *phEventWaitList, ur_event_handle_t *phEvent) {
   TRACK_SCOPE_LATENCY("ur_queue_immediate_in_order_t::enqueueKernelLaunch");
 
-  auto commandListLocked = commandListManager.lock();
-  UR_CALL(commandListLocked->appendKernelLaunch(
-      hKernel, workDim, pGlobalWorkOffset, pGlobalWorkSize, pLocalWorkSize,
-      numEventsInWaitList, phEventWaitList, phEvent));
+  ptrdiff_t queueOffset;
+  do {
+    queueOffset = ringbuf_acquire(&ringbuff, worker, 1);
+  } while (queueOffset == -1);
+
+  ze_kernel_handle_t hZeKernel =
+      hKernel->getZeHandle(commandListManager.get_no_lock()->device);
+  ze_group_count_t zeThreadGroupDimensions{1, 1, 1};
+  uint32_t WG[3]{};
+  UR_CALL(calculateKernelWorkDimensions(
+      hZeKernel, commandListManager.get_no_lock()->device,
+      zeThreadGroupDimensions, WG, workDim, pGlobalWorkSize, pLocalWorkSize));
+
+  // If the offset is {0, 0, 0}, pass NULL instead.
+  // This allows us to skip setting the offset.
+  bool hasOffset = false;
+  for (uint32_t i = 0; i < workDim; ++i) {
+    hasOffset |= pGlobalWorkOffset[i];
+  }
+  if (!hasOffset) {
+    pGlobalWorkOffset = NULL;
+  }
+
+  workerQueue[queueOffset % workerQueueSize].hKernel = hKernel;
+  workerQueue[queueOffset % workerQueueSize].workDim = workDim;
+  workerQueue[queueOffset % workerQueueSize].pGlobalWorkOffset =
+      pGlobalWorkOffset;
+  workerQueue[queueOffset % workerQueueSize].WG[0] = WG[0];
+  workerQueue[queueOffset % workerQueueSize].WG[1] = WG[1];
+  workerQueue[queueOffset % workerQueueSize].WG[2] = WG[2];
+  workerQueue[queueOffset % workerQueueSize].ZeGoupCount =
+      zeThreadGroupDimensions;
+  workerQueue[queueOffset % workerQueueSize].numEventsInWaitList =
+      numEventsInWaitList;
+  workerQueue[queueOffset % workerQueueSize].phEventWaitList = phEventWaitList;
+
+  ringbuf_produce(&ringbuff, worker);
 
   recordSubmittedKernel(hKernel);
 

@@ -142,7 +142,7 @@ struct ur_command_list_manager {
   ze_event_handle_t getSignalEvent(ur_event_handle_t *hUserEvent,
                                    ur_command_t commandType);
 
-private:
+  // private:
   ur_result_t appendGenericFillUnlocked(
       ur_mem_buffer_t *hBuffer, size_t offset, size_t patternSize,
       const void *pPattern, size_t size, uint32_t numEventsInWaitList,

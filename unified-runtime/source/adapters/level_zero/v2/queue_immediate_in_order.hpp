@@ -19,9 +19,12 @@
 #include "queue_api.hpp"
 
 #include "ur/ur.hpp"
+#include <thread>
 
 #include "command_list_manager.hpp"
 #include "lockable.hpp"
+
+#include "rinbguff.hpp"
 
 namespace v2 {
 
@@ -35,6 +38,28 @@ private:
 
   lockable<ur_command_list_manager> commandListManager;
   std::vector<ur_kernel_handle_t> submittedKernels;
+
+  std::thread workerThread;
+  std::atomic<bool> finishThread = false;
+
+  struct enqueue_operation {
+    ur_kernel_handle_t hKernel;
+    uint32_t workDim;
+    const size_t *pGlobalWorkOffset;
+    ze_group_count_t ZeGoupCount;
+    uint32_t WG[3];
+    uint32_t numEventsInWaitList;
+    const ur_event_handle_t *phEventWaitList;
+    ur_event_handle_t *phEvent;
+  };
+
+  static constexpr size_t workerQueueSize = 1024;
+
+  std::vector<enqueue_operation> workerQueue;
+  ringbuf_t ringbuff;
+  ringbuf_worker_t *worker;
+
+  void workerFunc();
 
   wait_list_view
   getWaitListView(locked<ur_command_list_manager> &commandList,
