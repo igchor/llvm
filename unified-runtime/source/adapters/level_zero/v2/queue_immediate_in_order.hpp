@@ -36,15 +36,6 @@ private:
   lockable<ur_command_list_manager> commandListManager;
   std::vector<ur_kernel_handle_t> submittedKernels;
 
-  wait_list_view
-  getWaitListView(locked<ur_command_list_manager> &commandList,
-                  const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
-                  ur_event_handle_t additionalWaitEvent = nullptr);
-
-  ze_event_handle_t getSignalEvent(locked<ur_command_list_manager> &commandList,
-                                   ur_event_handle_t *hUserEvent,
-                                   ur_command_t commandType);
-
   ur_result_t enqueueGenericFillUnlocked(
       ur_mem_buffer_t *hBuffer, size_t offset, size_t patternSize,
       const void *pPattern, size_t size, uint32_t numEventsInWaitList,

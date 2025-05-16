@@ -17,11 +17,9 @@
 
 ur_command_list_manager::ur_command_list_manager(
     ur_context_handle_t context, ur_device_handle_t device,
-    v2::raii::command_list_unique_handle &&commandList, v2::event_flags_t flags,
-    ur_queue_t_ *queue)
+    std::unique_ptr<command_list_provider> commandListProvider)
     : context(context), device(device),
-      eventPool(context->getEventPoolCache().borrow(device->Id.value(), flags)),
-      zeCommandList(std::move(commandList)), queue(queue) {
+      commandListProvider(std::move(commandListProvider)) {
   UR_CALL_THROWS(ur::level_zero::urContextRetain(context));
   UR_CALL_THROWS(ur::level_zero::urDeviceRetain(device));
 }
@@ -37,25 +35,24 @@ ur_result_t ur_command_list_manager::appendGenericFillUnlocked(
     const ur_event_handle_t *phEventWaitList, ur_event_handle_t *phEvent,
     ur_command_t commandType) {
 
-  auto zeSignalEvent = getSignalEvent(phEvent, commandType);
-
-  auto waitListView = getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, commandType, phEventWaitList, numEventsInWaitList, nullptr);
 
   auto pDst = ur_cast<char *>(dst->getDevicePtr(
       device, ur_mem_buffer_t::device_access_mode_t::read_only, offset, size,
       [&](void *src, void *dst, size_t size) {
         ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                          (zeCommandList.get(), dst, src, size, nullptr,
-                           waitListView.num, waitListView.handles));
-        waitListView.clear();
+                          (D.zeCommandList, dst, src, size, nullptr,
+                           D.waitListView.num, D.waitListView.handles));
+        D.waitListView.clear();
       }));
 
   // PatternSize must be a power of two for zeCommandListAppendMemoryFill.
   // When it's not, the fill is emulated with zeCommandListAppendMemoryCopy.
   if (isPowerOf2(patternSize)) {
     ZE2UR_CALL(zeCommandListAppendMemoryFill,
-               (zeCommandList.get(), pDst, pPattern, patternSize, size,
-                zeSignalEvent, waitListView.num, waitListView.handles));
+               (D.zeCommandList, pDst, pPattern, patternSize, size,
+                D.zeSignalEvent, D.waitListView.num, D.waitListView.handles));
   } else {
     // Copy pattern into every entry in memory array pointed by Ptr.
     uint32_t numOfCopySteps = size / patternSize;
@@ -65,10 +62,10 @@ ur_result_t ur_command_list_manager::appendGenericFillUnlocked(
       void *dst = reinterpret_cast<void *>(reinterpret_cast<uint8_t *>(pDst) +
                                            step * patternSize);
       ZE2UR_CALL(zeCommandListAppendMemoryCopy,
-                 (zeCommandList.get(), dst, src, patternSize,
-                  step == numOfCopySteps - 1 ? zeSignalEvent : nullptr,
-                  waitListView.num, waitListView.handles));
-      waitListView.clear();
+                 (D.zeCommandList, dst, src, patternSize,
+                  step == numOfCopySteps - 1 ? D.zeSignalEvent : nullptr,
+                  D.waitListView.num, D.waitListView.handles));
+      D.waitListView.clear();
     }
   }
 
@@ -80,34 +77,33 @@ ur_result_t ur_command_list_manager::appendGenericCopyUnlocked(
     size_t dstOffset, size_t size, uint32_t numEventsInWaitList,
     const ur_event_handle_t *phEventWaitList, ur_event_handle_t *phEvent,
     ur_command_t commandType) {
-  auto zeSignalEvent = getSignalEvent(phEvent, commandType);
-
-  auto waitListView = getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, commandType, phEventWaitList, numEventsInWaitList, nullptr);
 
   auto pSrc = ur_cast<char *>(src->getDevicePtr(
       device, ur_mem_buffer_t::device_access_mode_t::read_only, srcOffset, size,
       [&](void *src, void *dst, size_t size) {
         ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                          (zeCommandList.get(), dst, src, size, nullptr,
-                           waitListView.num, waitListView.handles));
-        waitListView.clear();
+                          (D.zeCommandList, dst, src, size, nullptr,
+                           D.waitListView.num, D.waitListView.handles));
+        D.waitListView.clear();
       }));
 
   auto pDst = ur_cast<char *>(dst->getDevicePtr(
       device, ur_mem_buffer_t::device_access_mode_t::write_only, dstOffset,
       size, [&](void *src, void *dst, size_t size) {
         ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                          (zeCommandList.get(), dst, src, size, nullptr,
-                           waitListView.num, waitListView.handles));
-        waitListView.clear();
+                          (D.zeCommandList, dst, src, size, nullptr,
+                           D.waitListView.num, D.waitListView.handles));
+        D.waitListView.clear();
       }));
 
   ZE2UR_CALL(zeCommandListAppendMemoryCopy,
-             (zeCommandList.get(), pDst, pSrc, size, zeSignalEvent,
-              waitListView.num, waitListView.handles));
+             (D.zeCommandList, pDst, pSrc, size, D.zeSignalEvent,
+              D.waitListView.num, D.waitListView.handles));
 
   if (blocking) {
-    ZE2UR_CALL(zeCommandListHostSynchronize, (zeCommandList.get(), UINT64_MAX));
+    ZE2UR_CALL(zeCommandListHostSynchronize, (D.zeCommandList, UINT64_MAX));
   }
 
   return UR_RESULT_SUCCESS;
@@ -123,66 +119,37 @@ ur_result_t ur_command_list_manager::appendRegionCopyUnlocked(
   auto zeParams = ur2zeRegionParams(srcOrigin, dstOrigin, region, srcRowPitch,
                                     dstRowPitch, srcSlicePitch, dstSlicePitch);
 
-  auto zeSignalEvent = getSignalEvent(phEvent, commandType);
-
-  auto waitListView = getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, commandType, phEventWaitList, numEventsInWaitList, nullptr);
 
   auto pSrc = ur_cast<char *>(src->getDevicePtr(
       device, ur_mem_buffer_t::device_access_mode_t::read_only, 0,
       src->getSize(), [&](void *src, void *dst, size_t size) {
         ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                          (zeCommandList.get(), dst, src, size, nullptr,
-                           waitListView.num, waitListView.handles));
-        waitListView.clear();
+                          (D.zeCommandList, dst, src, size, nullptr,
+                           D.waitListView.num, D.waitListView.handles));
+        D.waitListView.clear();
       }));
   auto pDst = ur_cast<char *>(dst->getDevicePtr(
       device, ur_mem_buffer_t::device_access_mode_t::write_only, 0,
       dst->getSize(), [&](void *src, void *dst, size_t size) {
         ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                          (zeCommandList.get(), dst, src, size, nullptr,
-                           waitListView.num, waitListView.handles));
-        waitListView.clear();
+                          (D.zeCommandList, dst, src, size, nullptr,
+                           D.waitListView.num, D.waitListView.handles));
+        D.waitListView.clear();
       }));
 
   ZE2UR_CALL(zeCommandListAppendMemoryCopyRegion,
-             (zeCommandList.get(), pDst, &zeParams.dstRegion, zeParams.dstPitch,
+             (D.zeCommandList, pDst, &zeParams.dstRegion, zeParams.dstPitch,
               zeParams.dstSlicePitch, pSrc, &zeParams.srcRegion,
-              zeParams.srcPitch, zeParams.srcSlicePitch, zeSignalEvent,
-              waitListView.num, waitListView.handles));
+              zeParams.srcPitch, zeParams.srcSlicePitch, D.zeSignalEvent,
+              D.waitListView.num, D.waitListView.handles));
 
   if (blocking) {
-    ZE2UR_CALL(zeCommandListHostSynchronize, (zeCommandList.get(), UINT64_MAX));
+    ZE2UR_CALL(zeCommandListHostSynchronize, (D.zeCommandList, UINT64_MAX));
   }
 
   return UR_RESULT_SUCCESS;
-}
-
-wait_list_view ur_command_list_manager::getWaitListView(
-    const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
-    ur_event_handle_t additionalWaitEvent) {
-
-  uint32_t totalNumWaitEvents =
-      numWaitEvents + (additionalWaitEvent != nullptr ? 1 : 0);
-  waitList.resize(totalNumWaitEvents);
-  for (uint32_t i = 0; i < numWaitEvents; i++) {
-    waitList[i] = phWaitEvents[i]->getZeEvent();
-  }
-  if (additionalWaitEvent != nullptr) {
-    waitList[totalNumWaitEvents - 1] = additionalWaitEvent->getZeEvent();
-  }
-  return {waitList.data(), static_cast<uint32_t>(totalNumWaitEvents)};
-}
-
-ze_event_handle_t
-ur_command_list_manager::getSignalEvent(ur_event_handle_t *hUserEvent,
-                                        ur_command_t commandType) {
-  if (hUserEvent) {
-    *hUserEvent = eventPool->allocate();
-    (*hUserEvent)->resetQueueAndCommand(queue, commandType);
-    return (*hUserEvent)->getZeEvent();
-  } else {
-    return nullptr;
-  }
 }
 
 ur_result_t ur_command_list_manager::appendKernelLaunch(
@@ -208,15 +175,15 @@ ur_result_t ur_command_list_manager::appendKernelLaunch(
                                         zeThreadGroupDimensions, WG, workDim,
                                         pGlobalWorkSize, pLocalWorkSize));
 
-  auto zeSignalEvent = getSignalEvent(phEvent, UR_COMMAND_KERNEL_LAUNCH);
-
-  auto waitListView = getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, UR_COMMAND_KERNEL_LAUNCH, phEventWaitList, numEventsInWaitList,
+      nullptr);
 
   auto memoryMigrate = [&](void *src, void *dst, size_t size) {
     ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                      (zeCommandList.get(), dst, src, size, nullptr,
-                       waitListView.num, waitListView.handles));
-    waitListView.clear();
+                      (D.zeCommandList, dst, src, size, nullptr,
+                       D.waitListView.num, D.waitListView.handles));
+    D.waitListView.clear();
   };
 
   // If the offset is {0, 0, 0}, pass NULL instead.
@@ -236,8 +203,8 @@ ur_result_t ur_command_list_manager::appendKernelLaunch(
   TRACK_SCOPE_LATENCY(
       "ur_command_list_manager::zeCommandListAppendLaunchKernel");
   ZE2UR_CALL(zeCommandListAppendLaunchKernel,
-             (zeCommandList.get(), hZeKernel, &zeThreadGroupDimensions,
-              zeSignalEvent, waitListView.num, waitListView.handles));
+             (D.zeCommandList, hZeKernel, &zeThreadGroupDimensions,
+              D.zeSignalEvent, D.waitListView.num, D.waitListView.handles));
 
   postSubmit(hZeKernel, pGlobalWorkOffset);
 
@@ -250,17 +217,16 @@ ur_result_t ur_command_list_manager::appendUSMMemcpy(
     ur_event_handle_t *phEvent) {
   TRACK_SCOPE_LATENCY("ur_command_list_manager::appendUSMMemcpy");
 
-  auto zeSignalEvent = getSignalEvent(phEvent, UR_COMMAND_USM_MEMCPY);
-
-  auto [pWaitEvents, numWaitEvents] =
-      getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, UR_COMMAND_USM_MEMCPY, phEventWaitList, numEventsInWaitList,
+      nullptr);
 
   ZE2UR_CALL(zeCommandListAppendMemoryCopy,
-             (zeCommandList.get(), pDst, pSrc, size, zeSignalEvent,
-              numWaitEvents, pWaitEvents));
+             (D.zeCommandList, pDst, pSrc, size, D.zeSignalEvent,
+              D.waitListView.num, D.waitListView.handles));
 
   if (blocking) {
-    ZE2UR_CALL(zeCommandListHostSynchronize, (zeCommandList.get(), UINT64_MAX));
+    ZE2UR_CALL(zeCommandListHostSynchronize, (D.zeCommandList, UINT64_MAX));
   }
 
   return UR_RESULT_SUCCESS;
@@ -300,21 +266,19 @@ ur_result_t ur_command_list_manager::appendUSMPrefetch(
     ur_event_handle_t *phEvent) {
   TRACK_SCOPE_LATENCY("ur_command_list_manager::appendUSMPrefetch");
 
-  auto zeSignalEvent = getSignalEvent(phEvent, UR_COMMAND_USM_PREFETCH);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, UR_COMMAND_USM_PREFETCH, phEventWaitList, numEventsInWaitList,
+      nullptr);
 
-  auto [pWaitEvents, numWaitEvents] =
-      getWaitListView(phEventWaitList, numEventsInWaitList);
-
-  if (pWaitEvents) {
+  if (D.waitListView) {
     ZE2UR_CALL(zeCommandListAppendWaitOnEvents,
-               (zeCommandList.get(), numWaitEvents, pWaitEvents));
+               (D.zeCommandList, D.waitListView.num, D.waitListView.handles));
   }
   // TODO: figure out how to translate "flags"
-  ZE2UR_CALL(zeCommandListAppendMemoryPrefetch,
-             (zeCommandList.get(), pMem, size));
-  if (zeSignalEvent) {
+  ZE2UR_CALL(zeCommandListAppendMemoryPrefetch, (D.zeCommandList, pMem, size));
+  if (D.zeSignalEvent) {
     ZE2UR_CALL(zeCommandListAppendSignalEvent,
-               (zeCommandList.get(), zeSignalEvent));
+               (D.zeCommandList, D.zeSignalEvent));
   }
 
   return UR_RESULT_SUCCESS;
@@ -328,21 +292,20 @@ ur_command_list_manager::appendUSMAdvise(const void *pMem, size_t size,
 
   auto zeAdvice = ur_cast<ze_memory_advice_t>(advice);
 
-  auto zeSignalEvent = getSignalEvent(phEvent, UR_COMMAND_USM_ADVISE);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, UR_COMMAND_USM_ADVISE, nullptr, 0, nullptr);
 
-  auto [pWaitEvents, numWaitEvents] = getWaitListView(nullptr, 0);
-
-  if (pWaitEvents) {
+  if (D.waitListView) {
     ZE2UR_CALL(zeCommandListAppendWaitOnEvents,
-               (zeCommandList.get(), numWaitEvents, pWaitEvents));
+               (D.zeCommandList, D.waitListView.num, D.waitListView.handles));
   }
 
   ZE2UR_CALL(zeCommandListAppendMemAdvise,
-             (zeCommandList.get(), device->ZeDevice, pMem, size, zeAdvice));
+             (D.zeCommandList, device->ZeDevice, pMem, size, zeAdvice));
 
-  if (zeSignalEvent) {
+  if (D.zeSignalEvent) {
     ZE2UR_CALL(zeCommandListAppendSignalEvent,
-               (zeCommandList.get(), zeSignalEvent));
+               (D.zeCommandList, D.zeSignalEvent));
   }
   return UR_RESULT_SUCCESS;
 }
@@ -353,13 +316,13 @@ ur_command_list_manager::appendBarrier(uint32_t numEventsInWaitList,
                                        ur_event_handle_t *phEvent) {
   TRACK_SCOPE_LATENCY("ur_command_list_manager::appendBarrier");
 
-  auto zeSignalEvent =
-      getSignalEvent(phEvent, UR_COMMAND_EVENTS_WAIT_WITH_BARRIER);
-  auto [pWaitEvents, numWaitEvents] =
-      getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto D = commandListProvider->getCmdSubmissionDescriptor(
+      phEvent, UR_COMMAND_EVENTS_WAIT_WITH_BARRIER, phEventWaitList,
+      numEventsInWaitList, nullptr);
 
   ZE2UR_CALL(zeCommandListAppendBarrier,
-             (zeCommandList.get(), zeSignalEvent, numWaitEvents, pWaitEvents));
+             (D.zeCommandList, D.zeSignalEvent, D.waitListView.num,
+              D.waitListView.handles));
 
   return UR_RESULT_SUCCESS;
 }
@@ -501,6 +464,12 @@ ur_result_t ur_command_list_manager::appendUSMMemcpy2D(
                                   UR_COMMAND_MEM_BUFFER_COPY_RECT);
 }
 
-ze_command_list_handle_t ur_command_list_manager::getZeCommandList() {
-  return zeCommandList.get();
+command_submission_descriptor_t
+ur_command_list_manager::getCmdSubmissionDescriptor(
+    ur_event_handle_t *hUserEvent, ur_command_t commandType,
+    const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
+    ur_event_handle_t additionalWaitEvent) {
+  return commandListProvider->getCmdSubmissionDescriptor(
+      hUserEvent, commandType, phWaitEvents, numWaitEvents,
+      additionalWaitEvent);
 }

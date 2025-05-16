@@ -62,14 +62,29 @@ void checkImmediateAppendSupport(ur_context_handle_t context) {
 
 } // namespace
 
+struct buffer_command_list_provider : command_list_provider {
+  buffer_command_list_provider(v2::raii::command_list_unique_handle commandList)
+      : commandList(std::move(commandList)) {}
+
+  command_submission_descriptor_t
+  getCmdSubmissionDescriptor(ur_event_handle_t *, ur_command_t,
+                             const ur_event_handle_t *, uint32_t,
+                             ur_event_handle_t) override {
+    return command_submission_descriptor_t{commandList.get(), nullptr,
+                                           wait_list_view(nullptr, 0)};
+  }
+
+private:
+  v2::raii::command_list_unique_handle commandList;
+};
+
 ur_exp_command_buffer_handle_t_::ur_exp_command_buffer_handle_t_(
     ur_context_handle_t context, ur_device_handle_t device,
     v2::raii::command_list_unique_handle &&commandList,
     const ur_exp_command_buffer_desc_t *desc)
-    : commandListManager(
-          context, device,
-          std::forward<v2::raii::command_list_unique_handle>(commandList),
-          v2::EVENT_FLAGS_COUNTER, nullptr),
+    : commandListManager(context, device,
+                         std::make_unique<buffer_command_list_provider>(
+                             std::move(commandList))),
       isUpdatable(desc ? desc->isUpdatable : false), context(context),
       device(device) {}
 
@@ -80,8 +95,9 @@ ur_result_t ur_exp_command_buffer_handle_t_::createCommandHandle(
     ur_exp_command_buffer_command_handle_t *command) {
 
   auto platform = context->getPlatform();
-  ze_command_list_handle_t zeCommandList =
-      commandListLocked->getZeCommandList();
+  auto [zeCommandList, _1, _2] = commandListLocked->getCmdSubmissionDescriptor(
+      nullptr, UR_COMMAND_FORCE_UINT32, nullptr, 0);
+
   std::unique_ptr<kernel_command_handle> newCommand;
   UR_CALL(createCommandHandleUnlocked(this, zeCommandList, hKernel, workDim,
                                       pGlobalWorkSize, numKernelAlternatives,
@@ -98,7 +114,9 @@ ur_result_t ur_exp_command_buffer_handle_t_::finalizeCommandBuffer() {
   auto commandListLocked = commandListManager.lock();
   UR_ASSERT(!isFinalized, UR_RESULT_ERROR_INVALID_OPERATION);
   // Close the command lists and have them ready for dispatch.
-  ZE2UR_CALL(zeCommandListClose, (commandListLocked->getZeCommandList()));
+  auto [zeCommandList, _1, _2] = commandListLocked->getCmdSubmissionDescriptor(
+      nullptr, UR_COMMAND_FORCE_UINT32, nullptr, 0);
+  ZE2UR_CALL(zeCommandListClose, (zeCommandList));
   isFinalized = true;
   return UR_RESULT_SUCCESS;
 }
@@ -149,8 +167,8 @@ ur_result_t ur_exp_command_buffer_handle_t_::applyUpdateCommands(
   device_ptr_storage_t zeHandles;
 
   auto platform = context->getPlatform();
-  ze_command_list_handle_t zeCommandList =
-      commandListLocked->getZeCommandList();
+  auto [zeCommandList, _1, _2] = commandListLocked->getCmdSubmissionDescriptor(
+      nullptr, UR_COMMAND_FORCE_UINT32, nullptr, 0);
   UR_CALL(updateCommandBufferUnlocked(
       getZeKernelWrapped, getMemPtr, zeCommandList, platform, device,
       &zeHandles, numUpdateCommands, updateCommands));
@@ -562,9 +580,9 @@ urCommandBufferGetNativeHandleExp(ur_exp_command_buffer_handle_t hCommandBuffer,
                                   ur_native_handle_t *phNativeCommandBuffer) {
 
   auto commandListLocked = hCommandBuffer->commandListManager.lock();
-  ze_command_list_handle_t ZeCommandList =
-      commandListLocked->getZeCommandList();
-  *phNativeCommandBuffer = reinterpret_cast<ur_native_handle_t>(ZeCommandList);
+  auto [zeCommandList, _1, _2] = commandListLocked->getCmdSubmissionDescriptor(
+      nullptr, UR_COMMAND_FORCE_UINT32, nullptr, 0);
+  *phNativeCommandBuffer = reinterpret_cast<ur_native_handle_t>(zeCommandList);
   return UR_RESULT_SUCCESS;
 }
 

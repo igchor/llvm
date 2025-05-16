@@ -34,12 +34,24 @@ struct wait_list_view {
   }
 };
 
+struct command_submission_descriptor_t {
+  ze_command_list_handle_t zeCommandList;
+  ze_event_handle_t zeSignalEvent;
+  wait_list_view waitListView;
+};
+
+struct command_list_provider {
+  virtual command_submission_descriptor_t getCmdSubmissionDescriptor(
+      ur_event_handle_t *hUserEvent, ur_command_t commandType,
+      const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
+      ur_event_handle_t additionalWaitEvent) = 0;
+};
+
 struct ur_command_list_manager {
 
-  ur_command_list_manager(ur_context_handle_t context,
-                          ur_device_handle_t device,
-                          v2::raii::command_list_unique_handle &&commandList,
-                          v2::event_flags_t flags, ur_queue_t_ *queue);
+  ur_command_list_manager(
+      ur_context_handle_t context, ur_device_handle_t device,
+      std::unique_ptr<command_list_provider> commandListProvider);
   ur_command_list_manager(const ur_command_list_manager &src) = delete;
   ur_command_list_manager(ur_command_list_manager &&src) = default;
 
@@ -134,13 +146,10 @@ struct ur_command_list_manager {
                             const ur_event_handle_t *phEventWaitList,
                             ur_event_handle_t *phEvent);
 
-  ze_command_list_handle_t getZeCommandList();
-
-  wait_list_view
-  getWaitListView(const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
-                  ur_event_handle_t additionalWaitEvent = nullptr);
-  ze_event_handle_t getSignalEvent(ur_event_handle_t *hUserEvent,
-                                   ur_command_t commandType);
+  command_submission_descriptor_t getCmdSubmissionDescriptor(
+      ur_event_handle_t *hUserEvent, ur_command_t commandType,
+      const ur_event_handle_t *phWaitEvents, uint32_t numWaitEvents,
+      ur_event_handle_t additionalWaitEvent = nullptr);
 
 private:
   ur_result_t appendGenericFillUnlocked(
@@ -162,12 +171,8 @@ private:
       size_t dstRowPitch, size_t dstSlicePitch, uint32_t numEventsInWaitList,
       const ur_event_handle_t *phEventWaitList, ur_event_handle_t *phEvent,
       ur_command_t commandType);
-  // UR context associated with this command-buffer
+
   ur_context_handle_t context;
-  // Device associated with this command-buffer
   ur_device_handle_t device;
-  v2::raii::cache_borrowed_event_pool eventPool;
-  v2::raii::command_list_unique_handle zeCommandList;
-  ur_queue_t_ *queue;
-  std::vector<ze_event_handle_t> waitList;
+  std::unique_ptr<command_list_provider> commandListProvider;
 };
