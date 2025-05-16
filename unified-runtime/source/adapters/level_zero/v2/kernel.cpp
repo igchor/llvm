@@ -663,9 +663,9 @@ ur_result_t urKernelGetSuggestedLocalWorkSize(
   std::copy(pGlobalWorkSize, pGlobalWorkSize + workDim, globalWorkSize3D);
 
   ur_device_handle_t hDevice;
-  UR_CALL(hQueue->get().queueGetInfo(UR_QUEUE_INFO_DEVICE, sizeof(hDevice),
-                                     reinterpret_cast<void *>(&hDevice),
-                                     nullptr));
+  UR_CALL(hQueue->getUnlocked()->queueGetInfo(
+      UR_QUEUE_INFO_DEVICE, sizeof(hDevice), reinterpret_cast<void *>(&hDevice),
+      nullptr));
 
   UR_CALL(getSuggestedLocalWorkSize(hDevice, hKernel->getZeHandle(hDevice),
                                     globalWorkSize3D, localWorkSize));

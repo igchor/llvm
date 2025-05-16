@@ -14,12 +14,14 @@
 #pragma once
 
 #include "../common.hpp"
+#include "lockable.hpp"
 #include "queue_immediate_in_order.hpp"
 #include <ur_api.h>
 #include <variant>
 
 struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
-  using data_variant = std::variant<v2::ur_queue_immediate_in_order_t>;
+  using data_variant =
+      std::variant<lockable<v2::ur_queue_immediate_in_order_t>>;
   data_variant queue_data;
 
   template <typename T, class... Args>
@@ -33,14 +35,20 @@ struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
                                   std::forward<Args>(args)...);
   }
 
-  ur_queue_t_ &get() {
-    return std::visit([&](auto &q) -> ur_queue_t_ & { return q; }, queue_data);
+  locked<ur_queue_t_> get() {
+    return std::visit([&](auto &q) { return q.template lock<ur_queue_t_>(); },
+                      queue_data);
+  }
+
+  ur_queue_t_ *getUnlocked() {
+    return std::visit([](auto &q) -> ur_queue_t_ * { return q.get_no_lock(); },
+                      queue_data);
   }
 
   ur_result_t queueRetain() {
     return std::visit(
         [](auto &q) {
-          q.RefCount.increment();
+          q.get_no_lock()->RefCount.increment();
           return UR_RESULT_SUCCESS;
         },
         queue_data);
@@ -49,7 +57,7 @@ struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
   ur_result_t queueRelease() {
     return std::visit(
         [queueHandle = this](auto &q) {
-          if (!q.RefCount.decrementAndTest())
+          if (!q.get_no_lock()->RefCount.decrementAndTest())
             return UR_RESULT_SUCCESS;
           delete queueHandle;
           return UR_RESULT_SUCCESS;
