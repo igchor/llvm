@@ -60,30 +60,33 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     const ur_queue_properties_t *pProps)
     : ur_command_list_manager(
           hContext, hDevice,
-          hContext->getCommandListCache().getImmediateCommandList(
-              hDevice->ZeDevice,
-              {true, getZeOrdinal(hDevice),
-               true /* always enable copy offload */},
-              ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS,
-              getZePriority(pProps ? pProps->flags : ur_queue_flags_t{}),
-              getZeIndex(pProps)),
-          eventFlagsFromQueueFlags(flags)),
-      flags(pProps ? pProps->flags : 0) {}
+          std::make_unique<single_command_list_provider>(
+              hContext->getCommandListCache().getImmediateCommandList(
+                  hDevice->ZeDevice,
+                  {true, getZeOrdinal(hDevice),
+                   true /* always enable copy offload */},
+                  ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS,
+                  getZePriority(pProps ? pProps->flags : ur_queue_flags_t{}),
+                  getZeIndex(pProps))),
+          eventFlagsFromQueueFlags(pProps ? pProps->flags
+                                          : ur_queue_flags_t{})),
+      flags(pProps ? pProps->flags : ur_queue_flags_t{}) {}
 
 ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice,
     ur_native_handle_t hNativeHandle, ur_queue_flags_t flags, bool ownZeQueue)
     : ur_command_list_manager(
           hContext, hDevice,
-          raii::command_list_unique_handle(
-              reinterpret_cast<ze_command_list_handle_t>(hNativeHandle),
-              [ownZeQueue](ze_command_list_handle_t hZeCommandList) {
-                if (ownZeQueue) {
-                  if (checkL0LoaderTeardown()) {
-                    ZE_CALL_NOCHECK(zeCommandListDestroy, (hZeCommandList));
-                  }
-                }
-              }),
+          std::make_unique<single_command_list_provider>(
+              raii::command_list_unique_handle(
+                  reinterpret_cast<ze_command_list_handle_t>(hNativeHandle),
+                  [ownZeQueue](ze_command_list_handle_t hZeCommandList) {
+                    if (ownZeQueue) {
+                      if (checkL0LoaderTeardown()) {
+                        ZE_CALL_NOCHECK(zeCommandListDestroy, (hZeCommandList));
+                      }
+                    }
+                  })),
           eventFlagsFromQueueFlags(flags)),
       flags(flags) {}
 
@@ -168,15 +171,15 @@ ur_result_t ur_queue_immediate_in_order_t::enqueueEventsWait(
   auto zeSignalEvent = getSignalEvent(phEvent, UR_COMMAND_EVENTS_WAIT);
   auto [pWaitEvents, numWaitEvents] =
       getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto zeCommandList = getZeCommandList();
 
   if (numWaitEvents > 0) {
     ZE2UR_CALL(zeCommandListAppendWaitOnEvents,
-               (getZeCommandList(), numWaitEvents, pWaitEvents));
+               (zeCommandList, numWaitEvents, pWaitEvents));
   }
 
   if (zeSignalEvent) {
-    ZE2UR_CALL(zeCommandListAppendSignalEvent,
-               (getZeCommandList(), zeSignalEvent));
+    ZE2UR_CALL(zeCommandListAppendSignalEvent, (zeCommandList, zeSignalEvent));
   }
   return UR_RESULT_SUCCESS;
 }
@@ -196,9 +199,10 @@ ur_result_t ur_queue_immediate_in_order_t::enqueueEventsWaitWithBarrierImpl(
       getSignalEvent(phEvent, UR_COMMAND_EVENTS_WAIT_WITH_BARRIER);
   auto [pWaitEvents, numWaitEvents] =
       getWaitListView(phEventWaitList, numEventsInWaitList);
+  auto zeCommandList = getZeCommandList();
 
   ZE2UR_CALL(zeCommandListAppendBarrier,
-             (getZeCommandList(), zeSignalEvent, numWaitEvents, pWaitEvents));
+             (zeCommandList, zeSignalEvent, numWaitEvents, pWaitEvents));
 
   return UR_RESULT_SUCCESS;
 }

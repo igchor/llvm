@@ -34,12 +34,27 @@ struct wait_list_view {
   }
 };
 
+struct command_list_provider {
+  virtual ~command_list_provider() = default;
+  virtual ze_command_list_handle_t getCommandList() = 0;
+};
+
+struct single_command_list_provider : command_list_provider {
+  single_command_list_provider(v2::raii::command_list_unique_handle &&cmdList)
+      : cmdList(std::move(cmdList)) {}
+
+  ze_command_list_handle_t getCommandList() override { return cmdList.get(); }
+
+private:
+  v2::raii::command_list_unique_handle cmdList;
+};
+
 struct ur_command_list_manager : ur_object, public ur_queue_t_ {
 
-  ur_command_list_manager(ur_context_handle_t context,
-                          ur_device_handle_t device,
-                          v2::raii::command_list_unique_handle &&commandList,
-                          v2::event_flags_t flags);
+  ur_command_list_manager(
+      ur_context_handle_t context, ur_device_handle_t device,
+      std::unique_ptr<command_list_provider> cmdListProvider,
+      v2::event_flags_t flags);
   ur_command_list_manager(const ur_command_list_manager &src) = delete;
   ur_command_list_manager(ur_command_list_manager &&src) = default;
 
@@ -324,7 +339,7 @@ protected:
   std::vector<ur_kernel_handle_t> submittedKernels;
 
   v2::raii::cache_borrowed_event_pool eventPool;
-  v2::raii::command_list_unique_handle zeCommandList;
+  std::unique_ptr<command_list_provider> cmdListProvider;
 
   std::vector<ze_event_handle_t> waitList;
 };
