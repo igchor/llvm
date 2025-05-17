@@ -16,12 +16,13 @@
 #include "../common.hpp"
 #include "lockable.hpp"
 #include "queue_immediate_in_order.hpp"
+#include "queue_immediate_out_of_order.hpp"
 #include <ur_api.h>
 #include <variant>
 
 struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
   using data_variant =
-      std::variant<lockable<v2::ur_queue_immediate_in_order_t>>;
+      std::variant<lockable<v2::ur_queue_immediate_in_order_t>, lockable<v2::ur_queue_immediate_out_of_order_t>>;
   data_variant queue_data;
 
   template <typename T, class... Args>

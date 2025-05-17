@@ -38,9 +38,9 @@ private:
 
 public:
   ur_queue_immediate_in_order_t(ur_context_handle_t, ur_device_handle_t,
-                                const ur_queue_properties_t *);
+                                uint32_t ordinal, ze_command_queue_priority_t priority, std::optional<int32_t> index, event_flags_t eventFlags, ur_queue_flags_t flags);
   ur_queue_immediate_in_order_t(ur_context_handle_t, ur_device_handle_t,
-                                ur_native_handle_t, ur_queue_flags_t,
+                                ur_native_handle_t, event_flags_t, ur_queue_flags_t,
                                 bool ownZeQueue);
 
   ~ur_queue_immediate_in_order_t();

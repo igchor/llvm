@@ -23,58 +23,25 @@
 
 namespace v2 {
 
-static uint32_t getZeOrdinal(ur_device_handle_t hDevice) {
-  return hDevice->QueueGroup[queue_group_type::Compute].ZeOrdinal;
-}
-
-static std::optional<int32_t> getZeIndex(const ur_queue_properties_t *pProps) {
-  if (pProps && pProps->pNext) {
-    const ur_base_properties_t *extendedDesc =
-        reinterpret_cast<const ur_base_properties_t *>(pProps->pNext);
-    if (extendedDesc->stype == UR_STRUCTURE_TYPE_QUEUE_INDEX_PROPERTIES) {
-      const ur_queue_index_properties_t *indexProperties =
-          reinterpret_cast<const ur_queue_index_properties_t *>(extendedDesc);
-      return indexProperties->computeIndex;
-    }
-  }
-  return std::nullopt;
-}
-
-static ze_command_queue_priority_t getZePriority(ur_queue_flags_t flags) {
-  if ((flags & UR_QUEUE_FLAG_PRIORITY_LOW) != 0)
-    return ZE_COMMAND_QUEUE_PRIORITY_PRIORITY_LOW;
-  if ((flags & UR_QUEUE_FLAG_PRIORITY_HIGH) != 0)
-    return ZE_COMMAND_QUEUE_PRIORITY_PRIORITY_HIGH;
-  return ZE_COMMAND_QUEUE_PRIORITY_NORMAL;
-}
-
-static event_flags_t eventFlagsFromQueueFlags(ur_queue_flags_t flags) {
-  event_flags_t eventFlags = EVENT_FLAGS_COUNTER;
-  if (flags & UR_QUEUE_FLAG_PROFILING_ENABLE)
-    eventFlags |= EVENT_FLAGS_PROFILING_ENABLED;
-  return eventFlags;
-}
-
 ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice,
-    const ur_queue_properties_t *pProps)
+    uint32_t ordinal, ze_command_queue_priority_t priority, std::optional<int32_t> index, event_flags_t eventFlags, ur_queue_flags_t flags)
     : ur_command_list_manager(
           hContext, hDevice,
           std::make_unique<single_command_list_provider>(
               hContext->getCommandListCache().getImmediateCommandList(
                   hDevice->ZeDevice,
-                  {true, getZeOrdinal(hDevice),
+                  {true, ordinal,
                    true /* always enable copy offload */},
                   ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS,
-                  getZePriority(pProps ? pProps->flags : ur_queue_flags_t{}),
-                  getZeIndex(pProps))),
-          eventFlagsFromQueueFlags(pProps ? pProps->flags
-                                          : ur_queue_flags_t{})),
-      flags(pProps ? pProps->flags : ur_queue_flags_t{}) {}
+                  priority,
+                  index)),
+                  eventFlags),
+      flags(flags) {}
 
 ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice,
-    ur_native_handle_t hNativeHandle, ur_queue_flags_t flags, bool ownZeQueue)
+    ur_native_handle_t hNativeHandle, event_flags_t eventFlags, ur_queue_flags_t flags, bool ownZeQueue)
     : ur_command_list_manager(
           hContext, hDevice,
           std::make_unique<single_command_list_provider>(
@@ -87,7 +54,7 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
                       }
                     }
                   })),
-          eventFlagsFromQueueFlags(flags)),
+          eventFlags),
       flags(flags) {}
 
 ur_result_t
