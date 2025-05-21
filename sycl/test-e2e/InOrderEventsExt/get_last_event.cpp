@@ -36,13 +36,7 @@ int Check(const sycl::queue &Q, const char *CheckName, const F &CheckFunc) {
               << std::endl;
     return 1;
   }
-  if (Q.get_backend() == sycl::backend::opencl) {
-    if (*E != *LastEvent) {
-      std::cout << "opencl backend should store last event in the queue"
-                << std::endl;
-      return 1;
-    }
-  } else if (LastEvent->get_info<
+  if (LastEvent->get_info<
                  sycl::info::event::command_execution_status>() ==
                  sycl::info::event_command_status::complete &&
              E->get_info<sycl::info::event::command_execution_status>() !=
