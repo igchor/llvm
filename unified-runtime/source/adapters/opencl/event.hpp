@@ -62,8 +62,9 @@ struct ur_event_handle_t_ : ur::opencl::handle_base {
   }
 };
 
-inline cl_event *ifUrEvent(ur_event_handle_t *ReturnedEvent, cl_event &Event) {
-  return ReturnedEvent ? &Event : nullptr;
+inline cl_event *ifUrEvent(ur_event_handle_t *, cl_event &Event) {
+  // TODO: not needed for ooo
+  return &Event;
 }
 
 inline ur_result_t createUREvent(cl_event Event, ur_context_handle_t Context,
@@ -75,6 +76,7 @@ inline ur_result_t createUREvent(cl_event Event, ur_context_handle_t Context,
       auto UREvent =
           std::make_unique<ur_event_handle_t_>(Event, Context, Queue);
       *ReturnedEvent = UREvent.release();
+      UR_RETURN_ON_FAILURE(urEventRetain(*ReturnedEvent));
       UR_RETURN_ON_FAILURE(Queue->storeLastEvent(*ReturnedEvent));
     } catch (std::bad_alloc &) {
       return UR_RESULT_ERROR_OUT_OF_RESOURCES;
@@ -82,7 +84,7 @@ inline ur_result_t createUREvent(cl_event Event, ur_context_handle_t Context,
       return UR_RESULT_ERROR_UNKNOWN;
     }
   } else {
-    UR_RETURN_ON_FAILURE(Queue->storeLastEvent(nullptr));
+    UR_RETURN_ON_FAILURE(Queue->storeLastEvent(new ur_event_handle_t_(Event, Context, Queue)));
   }
   return UR_RESULT_SUCCESS;
 }

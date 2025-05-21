@@ -60,15 +60,15 @@ struct ur_queue_handle_t_ : ur::opencl::handle_base {
 
   ur_result_t storeLastEvent(ur_event_handle_t Event) {
     if (!IsInOrder) {
+      if (Event) {
+        UR_RETURN_ON_FAILURE(urEventRelease(Event));
+      }
       return UR_RESULT_SUCCESS;
     }
     if (LastEvent) {
       UR_RETURN_ON_FAILURE(urEventRelease(LastEvent));
     }
     LastEvent = Event;
-    if (LastEvent) {
-      UR_RETURN_ON_FAILURE(urEventRetain(LastEvent));
-    }
     return UR_RESULT_SUCCESS;
   }
 };
