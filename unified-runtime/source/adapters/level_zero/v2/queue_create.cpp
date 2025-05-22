@@ -46,7 +46,7 @@ static ze_command_queue_priority_t getZePriority(ur_queue_flags_t flags) {
 }
 
 static event_flags_t eventFlagsFromQueueFlags(ur_queue_flags_t flags) {
-  event_flags_t eventFlags = EVENT_FLAGS_COUNTER;
+  event_flags_t eventFlags = 0;
   if (flags & UR_QUEUE_FLAG_PROFILING_ENABLE)
     eventFlags |= EVENT_FLAGS_PROFILING_ENABLED;
   return eventFlags;
@@ -80,7 +80,8 @@ ur_result_t urQueueCreate(ur_context_handle_t hContext,
   } else {
     *phQueue = ur_queue_handle_t_::create<v2::ur_queue_immediate_in_order_t>(
         hContext, hDevice, v2::getZeOrdinal(hDevice), v2::getZePriority(flags),
-        zeIndex, v2::eventFlagsFromQueueFlags(flags), flags);
+        zeIndex, v2::eventFlagsFromQueueFlags(flags) | v2::EVENT_FLAGS_COUNTER,
+        flags);
   }
 
   return UR_RESULT_SUCCESS;
@@ -123,7 +124,7 @@ ur_result_t urQueueCreateWithNativeHandle(
 
   *phQueue = ur_queue_handle_t_::create<v2::ur_queue_immediate_in_order_t>(
       hContext, hDevice, std::move(commandListHandle),
-      v2::eventFlagsFromQueueFlags(flags), flags);
+      v2::eventFlagsFromQueueFlags(flags) | v2::EVENT_FLAGS_COUNTER, flags);
 
   return UR_RESULT_SUCCESS;
 } catch (...) {

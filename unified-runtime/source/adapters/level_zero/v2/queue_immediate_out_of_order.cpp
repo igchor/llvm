@@ -23,61 +23,20 @@
 
 namespace v2 {
 
-template <size_t... Is>
-std::array<lockable<ur_command_list_manager>, sizeof...(Is)>
-createCommandListManagers(ur_context_handle_t hContext,
-                          ur_device_handle_t hDevice, uint32_t ordinal,
-                          ze_command_queue_priority_t priority,
-                          std::index_sequence<Is...>) {
-  return {
-      ((void)Is, lockable<ur_command_list_manager>(
-                     hContext, hDevice,
-                     hContext->getCommandListCache().getImmediateCommandList(
-                         hDevice->ZeDevice,
-                         {true, ordinal, true /* always enable copy offload */},
-                         ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS, priority)))...};
-}
-
-template <size_t N>
-std::array<lockable<ur_command_list_manager>, N>
-createCommandListManagers(ur_context_handle_t hContext,
-                          ur_device_handle_t hDevice, uint32_t ordinal,
-                          ze_command_queue_priority_t priority) {
-  return createCommandListManagers(hContext, hDevice, ordinal, priority,
-                                   std::make_index_sequence<N>{});
-}
-
 ur_queue_immediate_out_of_order_t::ur_queue_immediate_out_of_order_t(
     ur_context_handle_t hContext, ur_device_handle_t hDevice, uint32_t ordinal,
     ze_command_queue_priority_t priority, event_flags_t eventFlags,
     ur_queue_flags_t flags)
     : hContext(hContext), hDevice(hDevice),
-      commandListManagers(createCommandListManagers<numCommandLists>(
-          hContext, hDevice, ordinal, priority)),
+      commandListManager(
+          hContext, hDevice,
+          hContext->getCommandListCache().getImmediateCommandList(
+              hDevice->ZeDevice,
+              {false, ordinal, true /* always enable copy offload */},
+              ZE_COMMAND_QUEUE_MODE_ASYNCHRONOUS, priority)),
       eventPool(hContext->getEventPoolCache().borrow(hDevice->Id.value(),
                                                      eventFlags)),
-      flags(flags) {
-  // TODO: dummy operation to ensure that counter-based events are signaled
-  // rewrite this using zeCreateCounterBasedEventExt
-  void *tmpMem = nullptr;
-  uint32_t tmpPattern = 0;
-  UR_CALL_THROWS(ur::level_zero::urUSMHostAlloc(hContext, nullptr, nullptr,
-                                                sizeof(tmpPattern), &tmpMem));
-
-  for (size_t i = 0; i < numCommandLists; ++i) {
-    internalSignalEvents[i] = eventPool->allocate();
-    commandListManagers[i].get_no_lock()->enqueueUSMFill(
-        tmpMem, sizeof(tmpPattern), &tmpPattern, sizeof(tmpPattern), 0, nullptr,
-        &internalSignalEvents[i]);
-    ZE2UR_CALL_THROWS(
-        zeCommandListHostSynchronize,
-        (commandListManagers[i].get_no_lock()->getZeCommandList(), UINT64_MAX));
-
-    signalEvents.assign(i, internalSignalEvents[i], false);
-  }
-
-  UR_CALL_THROWS(ur::level_zero::urUSMFree(hContext, tmpMem));
-}
+      flags(flags) {}
 
 ur_result_t ur_queue_immediate_out_of_order_t::queueGetInfo(
     ur_queue_info_t propName, size_t propSize, void *pPropValue,
@@ -97,24 +56,16 @@ ur_result_t ur_queue_immediate_out_of_order_t::queueGetInfo(
   case UR_QUEUE_INFO_DEVICE_DEFAULT:
     return UR_RESULT_ERROR_UNSUPPORTED_ENUMERATION;
   case UR_QUEUE_INFO_EMPTY: {
-    auto isCmdListEmpty = [](ze_command_list_handle_t cmdList) {
-      auto status = ZE_CALL_NOCHECK(zeCommandListHostSynchronize, (cmdList, 0));
-      if (status == ZE_RESULT_SUCCESS) {
-        return true;
+    auto status =
+        ZE_CALL_NOCHECK(zeCommandListHostSynchronize,
+                        (commandListManager.lock()->getZeCommandList(), 0));
+    if (status == ZE_RESULT_SUCCESS) {
+      return ReturnValue(true);
       } else if (status == ZE_RESULT_NOT_READY) {
-        return false;
+        return ReturnValue(false);
       } else {
         throw ze2urResult(status);
       }
-    };
-
-    bool empty = std::all_of(
-        commandListManagers.begin(), commandListManagers.end(),
-        [&](auto &cmdListManager) {
-          return isCmdListEmpty(cmdListManager.lock()->getZeCommandList());
-        });
-
-    return ReturnValue(empty);
   }
   default:
     UR_LOG(ERR,
@@ -130,25 +81,15 @@ ur_result_t ur_queue_immediate_out_of_order_t::queueGetInfo(
 ur_result_t ur_queue_immediate_out_of_order_t::queueGetNativeHandle(
     ur_queue_native_desc_t * /*pDesc*/, ur_native_handle_t *phNativeQueue) {
   *phNativeQueue = reinterpret_cast<ur_native_handle_t>(
-      commandListManagers[getNextCommandListId()]
-          .get_no_lock()
-          ->getZeCommandList());
+      commandListManager.get_no_lock()->getZeCommandList());
   return UR_RESULT_SUCCESS;
 }
 
 ur_result_t ur_queue_immediate_out_of_order_t::queueFinish() {
   TRACK_SCOPE_LATENCY("ur_queue_immediate_out_of_order_t::queueFinish");
 
-  auto lastCommandListId =
-      commandListIndex.load(std::memory_order_relaxed) % numCommandLists;
-
-  // UR_CALL(commandListManagers[lastCommandListId].lock()->enqueueEventsWait(
-  //     numCommandLists, signalEvents.events.data(), nullptr));
-  for (int i = 0; i < numCommandLists; ++i) {
-    ZE2UR_CALL(zeCommandListHostSynchronize,
-      (commandListManagers[i].lock()->getZeCommandList(),
-       UINT64_MAX));
-  }
+  ZE2UR_CALL(zeCommandListHostSynchronize,
+             (commandListManager.lock()->getZeCommandList(), UINT64_MAX));
 
   return UR_RESULT_SUCCESS;
 }
@@ -168,13 +109,10 @@ ur_queue_immediate_out_of_order_t::~ur_queue_immediate_out_of_order_t() {
 ur_result_t ur_queue_immediate_out_of_order_t::enqueueEventsWait(
     uint32_t numEventsInWaitList, const ur_event_handle_t *phEventWaitList,
     ur_event_handle_t *phEvent) {
-  auto lastCommandListId =
-      commandListIndex.load(std::memory_order_relaxed) % numCommandLists;
 
-  UR_CALL(commandListManagers[lastCommandListId].lock()->enqueueEventsWait(
+  UR_CALL(commandListManager.lock()->enqueueEventsWait(
       numEventsInWaitList, phEventWaitList,
-      createOrForwardSignalEvent(lastCommandListId, phEvent,
-                                 UR_COMMAND_EVENTS_WAIT)));
+      createOrForwardSignalEvent(phEvent, UR_COMMAND_EVENTS_WAIT)));
 
   return UR_RESULT_SUCCESS;
 }
@@ -182,15 +120,10 @@ ur_result_t ur_queue_immediate_out_of_order_t::enqueueEventsWait(
 ur_result_t ur_queue_immediate_out_of_order_t::enqueueEventsWaitWithBarrierImpl(
     uint32_t numEventsInWaitList, const ur_event_handle_t *phEventWaitList,
     ur_event_handle_t *phEvent) {
-  auto lastCommandListId =
-      commandListIndex.load(std::memory_order_relaxed) % numCommandLists;
 
-  UR_CALL(commandListManagers[lastCommandListId]
-              .lock()
-              ->enqueueEventsWaitWithBarrier(
-                  numEventsInWaitList, phEventWaitList,
-                  createOrForwardSignalEvent(lastCommandListId, phEvent,
-                                             UR_COMMAND_EVENTS_WAIT)));
+  UR_CALL(commandListManager.lock()->enqueueEventsWaitWithBarrier(
+      numEventsInWaitList, phEventWaitList,
+      createOrForwardSignalEvent(phEvent, UR_COMMAND_EVENTS_WAIT)));
 
   return UR_RESULT_SUCCESS;
 }
