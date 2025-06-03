@@ -734,6 +734,7 @@ protected:
   template <typename HandlerType = handler>
   detail::EventImplPtr
   finalizeHandlerInOrderNoEventsUnlocked(HandlerType &Handler) {
+    std::cout << "In Order NO Deps" << std::endl;
     assert(isInOrder());
     assert(MGraph.expired());
     assert(MDefaultGraphDeps.LastEventPtr == nullptr);
@@ -749,6 +750,8 @@ protected:
   template <typename HandlerType = handler>
   detail::EventImplPtr
   finalizeHandlerInOrderHostTaskUnlocked(HandlerType &Handler) {
+    std::cout << "Host Task" << std::endl;
+
     assert(isInOrder());
     assert(Handler.getType() == CGType::CodeplayHostTask);
 
@@ -782,6 +785,8 @@ protected:
   template <typename HandlerType = handler>
   detail::EventImplPtr
   finalizeHandlerInOrderWithDepsUnlocked(HandlerType &Handler) {
+    std::cout << "In Order with Deps" << std::endl;
+
     // this is handled by finalizeHandlerInOrderHostTask
     assert(Handler.getType() != CGType::CodeplayHostTask);
 

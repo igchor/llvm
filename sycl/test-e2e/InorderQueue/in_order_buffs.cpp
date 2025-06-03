@@ -22,14 +22,15 @@ int main() {
   int dataB[dataSize] = {0};
 
   {
-    queue Queue{property::queue::in_order()};
+    queue Queue1{property::queue::in_order()};
+    queue Queue2{property::queue::in_order()};
 
     // Purpose of this test is to create a dependency between two kernels
     // RAW dependency
     // which requires the use of ordered queue.
     buffer<int, 1> bufA(dataA, range<1>(dataSize));
     buffer<int, 1> bufB(dataB, range<1>(dataSize));
-    Queue.submit([&](handler &cgh) {
+    Queue1.submit([&](handler &cgh) {
       auto writeBuffer = bufA.get_access<access::mode::write>(cgh);
 
       // Create a range.
@@ -41,7 +42,7 @@ int main() {
       cgh.parallel_for<class ordered_writer>(myRange, myKernel);
     });
 
-    Queue.submit([&](handler &cgh) {
+    Queue2.submit([&](handler &cgh) {
       auto writeBuffer = bufB.get_access<access::mode::write>(cgh);
       auto readBuffer = bufA.get_access<access::mode::read>(cgh);
 
