@@ -266,9 +266,9 @@ ur_result_t ur_platform_handle_t_::initialize() {
       }
     }
     // Check if extension is available for Exp External Sempahores
-    if (strncmp(extension.name, ZE_INTEL_EXTERNAL_SEMAPHORE_EXP_NAME,
-                strlen(ZE_INTEL_EXTERNAL_SEMAPHORE_EXP_NAME) + 1) == 0) {
-      if (extension.version == ZE_EXTERNAL_SEMAPHORE_EXP_VERSION_1_0) {
+    if (strncmp(extension.name, ZE_EXTERNAL_SEMAPHORES_EXTENSION_NAME,
+                strlen(ZE_EXTERNAL_SEMAPHORES_EXTENSION_NAME) + 1) == 0) {
+      if (extension.version == ZE_EXTERNAL_SEMAPHORE_EXT_VERSION_1_0) {
         ZeIntelExternalSemaphoreExtensionSupported = true;
       }
     }

@@ -1421,14 +1421,14 @@ ur_result_t urBindlessImagesImportExternalSemaphoreExp(
         (ur_exp_external_semaphore_handle_t)ExtSemaphoreHandle;
 
   } else {
-    ze_intel_external_semaphore_exp_desc_t SemDesc = {
-        ZE_INTEL_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_EXP_DESC, nullptr,
-        ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_OPAQUE_FD};
-    ze_intel_external_semaphore_exp_handle_t ExtSemaphoreHandle;
-    ze_intel_external_semaphore_desc_fd_exp_desc_t FDExpDesc = {
-        ZE_INTEL_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_FD_EXP_DESC, nullptr, 0};
-    _ze_intel_external_semaphore_win32_exp_desc_t Win32ExpDesc = {
-        ZE_INTEL_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_WIN32_EXP_DESC, nullptr,
+    ze_external_semaphore_ext_desc_t SemDesc = {
+        ZE_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_EXT_DESC, nullptr,
+        ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_OPAQUE_FD};
+    ze_external_semaphore_ext_handle_t ExtSemaphoreHandle;
+    ze_external_semaphore_fd_ext_desc_t FDExpDesc = {
+        ZE_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_FD_EXT_DESC, nullptr, 0};
+    _ze_external_semaphore_win32_ext_desc_t Win32ExpDesc = {
+        ZE_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_WIN32_EXT_DESC, nullptr,
         nullptr, nullptr};
     void *pNext = const_cast<void *>(pExternalSemaphoreDesc->pNext);
     while (pNext != nullptr) {
@@ -1441,10 +1441,10 @@ ur_result_t urBindlessImagesImportExternalSemaphoreExp(
         SemDesc.pNext = &FDExpDesc;
         switch (semHandleType) {
         case UR_EXP_EXTERNAL_SEMAPHORE_TYPE_OPAQUE_FD:
-          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_OPAQUE_FD;
+          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_OPAQUE_FD;
           break;
         case UR_EXP_EXTERNAL_SEMAPHORE_TYPE_TIMELINE_FD:
-          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_TIMELINE_SEMAPHORE_FD;
+          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_VK_TIMELINE_SEMAPHORE_FD;
           break;
         default:
           return UR_RESULT_ERROR_INVALID_VALUE;
@@ -1454,14 +1454,14 @@ ur_result_t urBindlessImagesImportExternalSemaphoreExp(
         auto Win32Handle = static_cast<const ur_exp_win32_handle_t *>(pNext);
         switch (semHandleType) {
         case UR_EXP_EXTERNAL_SEMAPHORE_TYPE_WIN32_NT:
-          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_OPAQUE_WIN32;
+          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_OPAQUE_WIN32;
           break;
         case UR_EXP_EXTERNAL_SEMAPHORE_TYPE_WIN32_NT_DX12_FENCE:
-          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_D3D12_FENCE;
+          SemDesc.flags = ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_D3D12_FENCE;
           break;
         case UR_EXP_EXTERNAL_SEMAPHORE_TYPE_TIMELINE_WIN32_NT:
           SemDesc.flags =
-              ZE_EXTERNAL_SEMAPHORE_EXP_FLAGS_TIMELINE_SEMAPHORE_WIN32;
+              ZE_EXTERNAL_SEMAPHORE_EXT_FLAG_VK_TIMELINE_SEMAPHORE_WIN32;
           break;
         default:
           return UR_RESULT_ERROR_INVALID_VALUE;
@@ -1503,7 +1503,7 @@ ur_result_t urBindlessImagesReleaseExternalSemaphoreExp(
   } else {
     ZE2UR_CALL(UrPlatform->ZeExternalSemaphoreExt
                    .zexExpDeviceReleaseExternalSemaphoreExp,
-               ((ze_intel_external_semaphore_exp_handle_t)hExternalSemaphore));
+               ((ze_external_semaphore_ext_handle_t)hExternalSemaphore));
   }
 
   return UR_RESULT_SUCCESS;

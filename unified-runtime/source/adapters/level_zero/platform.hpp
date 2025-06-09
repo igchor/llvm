@@ -149,20 +149,20 @@ struct ur_platform_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter>,
         zexDeviceReleaseExternalSemaphoreExp = nullptr;
     // Driver EXP Functions
     ze_result_t (*zexExpImportExternalSemaphoreExp)(
-        ze_device_handle_t, const ze_intel_external_semaphore_exp_desc_t *,
-        ze_intel_external_semaphore_exp_handle_t *);
+        ze_device_handle_t, const ze_external_semaphore_ext_desc_t *,
+        ze_external_semaphore_ext_handle_t *);
     ze_result_t (*zexExpCommandListAppendWaitExternalSemaphoresExp)(
         ze_command_list_handle_t, unsigned int,
-        const ze_intel_external_semaphore_exp_handle_t *,
-        const ze_intel_external_semaphore_wait_params_exp_t *,
+        const ze_external_semaphore_ext_handle_t *,
+        const ze_external_semaphore_wait_params_ext_t *,
         ze_event_handle_t, uint32_t, ze_event_handle_t *);
     ze_result_t (*zexExpCommandListAppendSignalExternalSemaphoresExp)(
         ze_command_list_handle_t, size_t,
-        const ze_intel_external_semaphore_exp_handle_t *,
-        const ze_intel_external_semaphore_signal_params_exp_t *,
+        const ze_external_semaphore_ext_handle_t *,
+        const ze_external_semaphore_signal_params_ext_t *,
         ze_event_handle_t, uint32_t, ze_event_handle_t *);
     ze_result_t (*zexExpDeviceReleaseExternalSemaphoreExp)(
-        ze_intel_external_semaphore_exp_handle_t);
+        ze_external_semaphore_ext_handle_t);
   } ZeExternalSemaphoreExt;
 
   struct ZeCommandListImmediateAppendExtension {
