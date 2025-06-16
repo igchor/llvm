@@ -661,10 +661,10 @@ public:
   // the cleanup process.
   EmptyCommand *MEmptyCmd = nullptr;
 
-  // MEventNeeded is true if the command needs to produce a valid event. The
+  // MDiscardEvent is false if the command needs to produce a valid event. The
   // implementation may elect to not produce events (native or SYCL) if this
-  // is false.
-  bool MEventNeeded = true;
+  // is true.
+  bool MDiscardEvent = false;
 
   bool producesPiEvent() const final;
 
