@@ -54,12 +54,23 @@ void event_pool::free(ur_event_handle_t event) {
   // The event is still in the pool, so we need to increment the refcount
   assert(event->RefCount.load() == 0);
   event->RefCount.increment();
+
+  // All events are returned to the cache
+  if (events.size() == freelist.size()) {
+    lock.unlock();
+    cleanupCallback();
+  }
 }
 
 event_provider *event_pool::getProvider() const { return provider.get(); }
 
 event_flags_t event_pool::getFlags() const {
   return getProvider()->eventFlags();
+}
+
+bool event_pool::isFull() const {
+  std::unique_lock<std::mutex> lock(*mutex);
+  return events.size() == freelist.size();
 }
 
 } // namespace v2

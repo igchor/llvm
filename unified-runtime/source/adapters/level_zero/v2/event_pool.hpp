@@ -42,6 +42,10 @@ public:
 
   ~event_pool() = default;
 
+  void setCleanupCallbackUnlocked(std::function<void(void)> cleanupCallback) {
+    this->cleanupCallback = cleanupCallback;
+  }
+
   // Allocate an event from the pool. Thread safe.
   ur_event_handle_t allocate();
 
@@ -51,6 +55,8 @@ public:
   event_provider *getProvider() const;
   event_flags_t getFlags() const;
 
+  bool isFull() const;
+
 private:
   ur_context_handle_t hContext;
   std::unique_ptr<event_provider> provider;
@@ -59,6 +65,8 @@ private:
   std::vector<ur_event_handle_t> freelist;
 
   std::unique_ptr<std::mutex> mutex;
+
+  std::function<void(void)> cleanupCallback;
 };
 
 // Only create an event when requested by the user.

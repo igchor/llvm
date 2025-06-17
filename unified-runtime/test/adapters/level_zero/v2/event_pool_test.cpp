@@ -168,9 +168,9 @@ UUR_DEVICE_TEST_SUITE_WITH_PARAM(EventPoolTest, testing::ValuesIn(test_cases),
                                  printParams<EventPoolTest>);
 
 TEST_P(EventPoolTest, InvalidDevice) {
-  auto pool = cache->borrow(MAX_DEVICES, getParam().flags);
+  auto pool = cache->borrow(MAX_DEVICES, getParam().flags, [] {});
   ASSERT_EQ(pool, nullptr);
-  pool = cache->borrow(MAX_DEVICES + 10, getParam().flags);
+  pool = cache->borrow(MAX_DEVICES + 10, getParam().flags, [] {});
   ASSERT_EQ(pool, nullptr);
 }
 
@@ -179,7 +179,7 @@ TEST_P(EventPoolTest, Basic) {
     ur_event_handle_t first;
     ze_event_handle_t zeFirst;
     {
-      auto pool = cache->borrow(device->Id.value(), getParam().flags);
+      auto pool = cache->borrow(device->Id.value(), getParam().flags, [] {});
 
       first = pool->allocate();
       first->setQueue(nullptr);
@@ -191,7 +191,7 @@ TEST_P(EventPoolTest, Basic) {
     ur_event_handle_t second;
     ze_event_handle_t zeSecond;
     {
-      auto pool = cache->borrow(device->Id.value(), getParam().flags);
+      auto pool = cache->borrow(device->Id.value(), getParam().flags, [] {});
 
       second = pool->allocate();
       second->setQueue(nullptr);
@@ -211,7 +211,7 @@ TEST_P(EventPoolTest, Threaded) {
   for (int iters = 0; iters < 3; ++iters) {
     for (int th = 0; th < 10; ++th) {
       threads.emplace_back([&] {
-        auto pool = cache->borrow(device->Id.value(), getParam().flags);
+        auto pool = cache->borrow(device->Id.value(), getParam().flags, [] {});
         std::vector<ur_event_handle_t> events;
         for (int i = 0; i < 100; ++i) {
           events.push_back(pool->allocate());
@@ -231,7 +231,7 @@ TEST_P(EventPoolTest, Threaded) {
 }
 
 TEST_P(EventPoolTest, ProviderNormalUseMostFreePool) {
-  auto pool = cache->borrow(device->Id.value(), getParam().flags);
+  auto pool = cache->borrow(device->Id.value(), getParam().flags, [] {});
   std::list<ur_event_handle_t> events;
   for (int i = 0; i < 128; ++i) {
     auto event = pool->allocate();

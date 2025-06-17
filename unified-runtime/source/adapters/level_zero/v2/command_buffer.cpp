@@ -68,7 +68,12 @@ ur_exp_command_buffer_handle_t_::ur_exp_command_buffer_handle_t_(
     const ur_exp_command_buffer_desc_t *desc)
     : eventPool(context->getEventPoolCache(PoolCacheType::Regular)
                     .borrow(device->Id.value(),
-                            isInOrder ? v2::EVENT_FLAGS_COUNTER : 0)),
+                            isInOrder ? v2::EVENT_FLAGS_COUNTER : 0,
+                            [this] {
+                              if (this->RefCount.load() == 0) {
+                                delete this;
+                              }
+                            })),
       context(context), device(device),
       isUpdatable(desc ? desc->isUpdatable : false),
       isInOrder(desc ? desc->isInOrder : false),
@@ -226,6 +231,18 @@ ur_event_handle_t ur_exp_command_buffer_handle_t_::createEventIfRequested(
   return event;
 }
 
+ur_result_t ur_exp_command_buffer_handle_t_::release() {
+  // Command buffer can only be released if all events were returned to the
+  // event pool. If the event pool is not full, we delay queue destruction
+  // until all events are relased. Queue destruction will happen on
+  // the last eventPool::free.
+
+  if (eventPool->isFull()) {
+    delete this;
+  }
+  return UR_RESULT_SUCCESS;
+}
+
 namespace ur::level_zero {
 
 ur_result_t
@@ -276,7 +293,7 @@ urCommandBufferReleaseExp(ur_exp_command_buffer_handle_t hCommandBuffer) try {
     ZE2UR_CALL(zeEventHostSynchronize,
                (executionEvent->getZeEvent(), UINT64_MAX));
   }
-  delete hCommandBuffer;
+  return hCommandBuffer->release();
   return UR_RESULT_SUCCESS;
 } catch (...) {
   return exceptionToResult(std::current_exception());

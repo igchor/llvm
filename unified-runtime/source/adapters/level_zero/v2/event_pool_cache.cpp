@@ -20,8 +20,9 @@ event_pool_cache::event_pool_cache(ur_context_handle_t hContext,
   pools.resize(max_devices * (1ULL << EVENT_FLAGS_USED_BITS));
 }
 
-raii::cache_borrowed_event_pool event_pool_cache::borrow(DeviceId id,
-                                                         event_flags_t flags) {
+raii::cache_borrowed_event_pool
+event_pool_cache::borrow(DeviceId id, event_flags_t flags,
+                         std::function<void(void)> cleanupCb) {
   std::unique_lock<ur_mutex> Lock(mutex);
 
   event_descriptor event_desc{id, flags};
@@ -38,6 +39,8 @@ raii::cache_borrowed_event_pool event_pool_cache::borrow(DeviceId id,
 
   auto pool = vec.back().release();
   vec.pop_back();
+
+  pool->setCleanupCallbackUnlocked(cleanupCb);
 
   return raii::cache_borrowed_event_pool(
       pool, [this, id, flags](event_pool *pool) {

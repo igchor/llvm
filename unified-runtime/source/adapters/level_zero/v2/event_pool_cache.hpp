@@ -38,7 +38,8 @@ public:
   event_pool_cache(ur_context_handle_t hContext, size_t max_devices,
                    ProviderCreateFunc);
 
-  raii::cache_borrowed_event_pool borrow(DeviceId, event_flags_t flags);
+  raii::cache_borrowed_event_pool borrow(DeviceId, event_flags_t flags,
+                                         std::function<void(void)> cleanupCb);
 
 private:
   ur_context_handle_t hContext;

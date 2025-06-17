@@ -27,6 +27,13 @@ struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
   static constexpr uintptr_t queue_offset =
       sizeof(ur::handle_base<ur::level_zero::ddi_getter>);
 
+  template <typename Q> static ur_queue_handle_t queuePtrToHandle(Q *queue) {
+    if (!queue)
+      return nullptr;
+    return reinterpret_cast<ur_queue_handle_t>(
+        reinterpret_cast<uintptr_t>(queue) - queue_offset);
+  }
+
   template <typename T, class... Args>
   ur_queue_handle_t_(std::in_place_type_t<T>, Args &&...args)
       : ur::handle_base<ur::level_zero::ddi_getter>(),
@@ -61,8 +68,7 @@ struct ur_queue_handle_t_ : ur::handle_base<ur::level_zero::ddi_getter> {
         [queueHandle = this](auto &q) {
           if (!q.RefCount.decrementAndTest())
             return UR_RESULT_SUCCESS;
-          delete queueHandle;
-          return UR_RESULT_SUCCESS;
+          return q.release();
         },
         queue_data);
   }

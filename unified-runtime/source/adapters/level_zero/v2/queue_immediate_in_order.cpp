@@ -12,6 +12,7 @@
 #include "command_buffer.hpp"
 #include "kernel.hpp"
 #include "memory.hpp"
+#include "queue_handle.hpp"
 #include "ur.hpp"
 
 #include "../common/latency_tracker.hpp"
@@ -29,7 +30,13 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     event_flags_t eventFlags, ur_queue_flags_t flags)
     : hContext(hContext), hDevice(hDevice),
       eventPool(hContext->getEventPoolCache(PoolCacheType::Immediate)
-                    .borrow(hDevice->Id.value(), eventFlags)),
+                    .borrow(hDevice->Id.value(), eventFlags,
+                            [this] {
+                              if (this->RefCount.load() == 0) {
+                                delete ur_queue_handle_t_::queuePtrToHandle(
+                                    this);
+                              }
+                            })),
       commandListManager(
           hContext, hDevice,
           hContext->getCommandListCache().getImmediateCommandList(
@@ -46,10 +53,28 @@ ur_queue_immediate_in_order_t::ur_queue_immediate_in_order_t(
     event_flags_t eventFlags, ur_queue_flags_t flags)
     : hContext(hContext), hDevice(hDevice),
       eventPool(hContext->getEventPoolCache(PoolCacheType::Immediate)
-                    .borrow(hDevice->Id.value(), eventFlags)),
+                    .borrow(hDevice->Id.value(), eventFlags,
+                            [this] {
+                              if (this->RefCount.load() == 0) {
+                                delete ur_queue_handle_t_::queuePtrToHandle(
+                                    this);
+                              }
+                            })),
       commandListManager(hContext, hDevice, std::move(commandListHandle)),
       flags(flags) {
   ur::level_zero::urContextRetain(hContext);
+}
+
+ur_result_t ur_queue_immediate_in_order_t::release() {
+  // Command buffer can only be released if all events were returned to the
+  // event pool. If the event pool is not full, we delay queue destruction
+  // until all events are relased. Queue destruction will happen on
+  // the last eventPool::free.
+
+  if (eventPool->isFull())
+    delete ur_queue_handle_t_::queuePtrToHandle(this);
+
+  return UR_RESULT_SUCCESS;
 }
 
 ur_result_t

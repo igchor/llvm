@@ -10,6 +10,7 @@
 
 #include "queue_immediate_out_of_order.hpp"
 #include "../common/latency_tracker.hpp"
+#include "queue_handle.hpp"
 #include "ur.hpp"
 
 namespace v2 {
@@ -34,7 +35,13 @@ ur_queue_immediate_out_of_order_t::ur_queue_immediate_out_of_order_t(
     event_flags_t eventFlags, ur_queue_flags_t flags)
     : hContext(hContext), hDevice(hDevice),
       eventPool(hContext->getEventPoolCache(PoolCacheType::Immediate)
-                    .borrow(hDevice->Id.value(), eventFlags)),
+                    .borrow(hDevice->Id.value(), eventFlags,
+                            [this] {
+                              if (this->RefCount.load() == 0) {
+                                delete ur_queue_handle_t_::queuePtrToHandle(
+                                    this);
+                              }
+                            })),
       commandListManagers(createCommandListManagers<numCommandLists>(
           hContext, hDevice, ordinal, priority, index)),
       flags(flags) {
@@ -43,6 +50,18 @@ ur_queue_immediate_out_of_order_t::ur_queue_immediate_out_of_order_t(
   }
 
   ur::level_zero::urContextRetain(hContext);
+}
+
+ur_result_t ur_queue_immediate_out_of_order_t::release() {
+  // Command buffer can only be released if all events were returned to the
+  // event pool. If the event pool is not full, we delay queue destruction
+  // until all events are relased. Queue destruction will happen on
+  // the last eventPool::free.
+
+  if (eventPool->isFull())
+    delete ur_queue_handle_t_::queuePtrToHandle(this);
+
+  return UR_RESULT_SUCCESS;
 }
 
 ur_result_t ur_queue_immediate_out_of_order_t::queueGetInfo(

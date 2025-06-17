@@ -53,6 +53,8 @@ struct ur_exp_command_buffer_handle_t_ : public ur_object {
   ur_event_handle_t
   createEventIfRequested(ur_exp_command_buffer_sync_point_t *retSyncPoint);
 
+  ur_result_t release();
+
 private:
   v2::raii::cache_borrowed_event_pool eventPool;
 
