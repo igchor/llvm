@@ -63,7 +63,6 @@ ur_integrated_buffer_handle_t::ur_integrated_buffer_handle_t(
         maybeImportUSM(hContext->getPlatform()->ZeDriverHandleExpTranslated,
                        hContext->getZeHandle(), hostPtr, size);
   }
-
   if (hostPtrImported) {
     this->ptr = usm_unique_ptr_t(hostPtr, [hContext](void *ptr) {
       ZeUSMImport.doZeUSMRelease(
@@ -100,12 +99,6 @@ ur_integrated_buffer_handle_t::ur_integrated_buffer_handle_t(
   });
 }
 
-ur_integrated_buffer_handle_t::~ur_integrated_buffer_handle_t() {
-  if (writeBackPtr) {
-    std::memcpy(writeBackPtr, this->ptr.get(), size);
-  }
-}
-
 void *ur_integrated_buffer_handle_t::getDevicePtr(
     ur_device_handle_t /*hDevice*/, device_access_mode_t /*access*/,
     size_t offset, size_t /*size*/, ze_command_list_handle_t /*cmdList*/,
@@ -113,21 +106,41 @@ void *ur_integrated_buffer_handle_t::getDevicePtr(
   return ur_cast<char *>(ptr.get()) + offset;
 }
 
+static void migrateMemory(ze_command_list_handle_t cmdList, void *src,
+                          void *dst, size_t size,
+                          wait_list_view &waitListView) {
+  if (!cmdList) {
+    throw UR_RESULT_ERROR_INVALID_NULL_HANDLE;
+  }
+  ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
+                    (cmdList, dst, src, size, nullptr, waitListView.num,
+                     waitListView.handles));
+  waitListView.clear();
+}
+
 void *ur_integrated_buffer_handle_t::mapHostPtr(
-    ur_map_flags_t /*flags*/, size_t offset, size_t /*size*/,
-    ze_command_list_handle_t /*cmdList*/, wait_list_view & /*waitListView*/) {
-  // TODO: if writeBackPtr is set, we should map to that pointer
-  // because that's what SYCL expects, SYCL will attempt to call free
-  // on the resulting pointer leading to double free with the current
-  // implementation. Investigate the SYCL implementation.
-  return ur_cast<char *>(ptr.get()) + offset;
+    ur_map_flags_t flags, size_t offset, size_t size,
+    ze_command_list_handle_t cmdList, wait_list_view & waitListView) {
+  if (writeBackPtr) {
+    auto mappedPtr = ur_cast<char *>(writeBackPtr) + offset;
+
+    if ((flags & UR_MAP_FLAG_READ) != 0) {
+      migrateMemory(
+          cmdList, ur_cast<char*>(ptr.get()) + offset, mappedPtr, size, waitListView);
+    }
+
+    return mappedPtr;
+  } else {
+    return ur_cast<char *>(ptr.get()) + offset;
+  }
 }
 
 void ur_integrated_buffer_handle_t::unmapHostPtr(
-    void * /*pMappedPtr*/, ze_command_list_handle_t /*cmdList*/,
-    wait_list_view & /*waitListView*/) {
-  // TODO: if writeBackPtr is set, we should copy the data back
-  /* nop */
+    void * MappedPtr, ze_command_list_handle_t cmdList,
+    wait_list_view & waitListView) {
+  if (writeBackPtr) {
+    migrateMemory(cmdList, MappedPtr, ur_cast<char*>(ptr.get()), size, waitListView);
+  }
 }
 
 static v2::raii::command_list_unique_handle
@@ -286,18 +299,6 @@ void *ur_discrete_buffer_handle_t::getDevicePtr(
   return getActiveDeviceAlloc(offset);
 }
 
-static void migrateMemory(ze_command_list_handle_t cmdList, void *src,
-                          void *dst, size_t size,
-                          wait_list_view &waitListView) {
-  if (!cmdList) {
-    throw UR_RESULT_ERROR_INVALID_NULL_HANDLE;
-  }
-  ZE2UR_CALL_THROWS(zeCommandListAppendMemoryCopy,
-                    (cmdList, dst, src, size, nullptr, waitListView.num,
-                     waitListView.handles));
-  waitListView.clear();
-}
-
 void *ur_discrete_buffer_handle_t::mapHostPtr(ur_map_flags_t flags,
                                               size_t offset, size_t size,
                                               ze_command_list_handle_t cmdList,
@@ -396,19 +397,15 @@ void ur_shared_buffer_handle_t::unmapHostPtr(
   // nop
 }
 
-static bool useHostBuffer(ur_context_handle_t /* hContext */) {
+static bool useHostBuffer(ur_context_handle_t hContext) {
   // We treat integrated devices (physical memory shared with the CPU)
   // differently from discrete devices (those with distinct memories).
   // For integrated devices, allocating the buffer in the host memory
   // enables automatic access from the device, and makes copying
   // unnecessary in the map/unmap operations. This improves performance.
-
-  // TODO: fix integrated buffer implementation
-  return false;
-
-  // return hContext->getDevices().size() == 1 &&
-  //        hContext->getDevices()[0]->ZeDeviceProperties->flags &
-  //            ZE_DEVICE_PROPERTY_FLAG_INTEGRATED;
+  return hContext->getDevices().size() == 1 &&
+         hContext->getDevices()[0]->ZeDeviceProperties->flags &
+             ZE_DEVICE_PROPERTY_FLAG_INTEGRATED;
 }
 
 ur_mem_sub_buffer_t::ur_mem_sub_buffer_t(ur_mem_handle_t hParent, size_t offset,

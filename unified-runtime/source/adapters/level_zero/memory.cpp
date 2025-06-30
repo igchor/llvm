@@ -1004,6 +1004,7 @@ ur_result_t urEnqueueMemBufferMap(
 
     if (Buffer->MapHostPtr) {
       *RetMap = Buffer->MapHostPtr + Offset;
+      std::cout << "map: " << (Buffer->MapHostPtr == ZeHandleSrc) << std::endl;
       if (ZeHandleSrc != Buffer->MapHostPtr &&
           AccessMode != ur_mem_handle_t_::write_only) {
         memcpy(*RetMap, ZeHandleSrc + Offset, Size);
@@ -1162,8 +1163,10 @@ ur_result_t urEnqueueMemUnmap(
                                 NumEventsInWaitList));
 
     std::scoped_lock<ur_shared_mutex> Guard(Buffer->Mutex);
-    if (Buffer->MapHostPtr)
+    if (Buffer->MapHostPtr) {
+      std::cout << "unmap: " << (Buffer->MapHostPtr == ZeHandleDst) << std::endl;
       memcpy(ZeHandleDst + MapInfo.Offset, MappedPtr, MapInfo.Size);
+    }
 
     // Signal this event if it is not using counter based events
     if (!(*Event)->CounterBasedEventsEnabled)
@@ -2264,7 +2267,7 @@ ur_buffer::ur_buffer(ur_context_handle_t Context, size_t Size, char *HostPtr,
   OnHost = Context->Devices.size() == 1 &&
            Context->Devices[0]->ZeDeviceProperties->flags &
                ZE_DEVICE_PROPERTY_FLAG_INTEGRATED;
-
+    
   // Fill the host allocation data.
   if (HostPtr) {
     MapHostPtr = HostPtr;
@@ -2276,6 +2279,8 @@ ur_buffer::ur_buffer(ur_context_handle_t Context, size_t Size, char *HostPtr,
       Allocations[nullptr].ReleaseAction = ur_buffer::allocation_t::unimport;
     }
   }
+
+  std::cout << "ctor: " << (uintptr_t) MapHostPtr << " " << ImportedHostPtr << std::endl;
 
   // This initialization does not end up with any valid allocation yet.
   LastDeviceWithValidAllocation = nullptr;
