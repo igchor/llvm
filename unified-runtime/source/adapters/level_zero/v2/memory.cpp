@@ -197,14 +197,37 @@ ur_discrete_buffer_handle_t::migrateBufferTo(ur_device_handle_t hDevice,
 }
 
 ur_discrete_buffer_handle_t::ur_discrete_buffer_handle_t(
-    ur_context_handle_t hContext, void *hostPtr, size_t size,
+    ur_context_handle_t hContext, void *hostPtr, size_t size, host_ptr_action_t hostPtrAction,
     device_access_mode_t accessMode)
     : ur_mem_buffer_t(hContext, size, accessMode),
       deviceAllocations(hContext->getPlatform()->getNumDevices()),
       activeAllocationDevice(nullptr), mapToPtr(hostPtr), hostAllocations() {
-  if (hostPtr) {
+
+        //std::cout << (uintptr_t) hostPtr << std::endl;
+  // if (hostPtr) {
+  //   auto initialDevice = hContext->getDevices()[0];
+  //   UR_CALL_THROWS(migrateBufferTo(initialDevice, hostPtr, size));
+  // }
+
+    bool hostPtrImported = false;
+  if (hostPtrAction == host_ptr_action_t::import) {
+    hostPtrImported =
+        maybeImportUSM(hContext->getPlatform()->ZeDriverHandleExpTranslated,
+                       hContext->getZeHandle(), hostPtr, size);
+  }
+
+  auto initialDevice = hContext->getDevices()[0];
+
+  if (hostPtrImported) {
+    deviceAllocations[initialDevice->Id.value()] = usm_unique_ptr_t(hostPtr, [hContext](void *ptr) {
+      ZeUSMImport.doZeUSMRelease(
+          hContext->getPlatform()->ZeDriverHandleExpTranslated, ptr);
+    });
+    activeAllocationDevice = initialDevice;
+    is_host_memory = true;
+  } else if (hostPtr) {
     auto initialDevice = hContext->getDevices()[0];
-    UR_CALL_THROWS(migrateBufferTo(initialDevice, hostPtr, size));
+    UR_CALL_THROWS(migrateBufferTo(initialDevice, hostPtr, size))
   }
 }
 
@@ -215,6 +238,8 @@ ur_discrete_buffer_handle_t::ur_discrete_buffer_handle_t(
       deviceAllocations(hContext->getPlatform()->getNumDevices()),
       activeAllocationDevice(hDevice), writeBackPtr(hostPtr),
       hostAllocations() {
+
+        //std::cout << (uintptr_t) hostPtr << " " << (uintptr_t) devicePtr << std::endl;
 
   if (!devicePtr) {
     hDevice = hDevice ? hDevice : hContext->getDevices()[0];
@@ -304,6 +329,12 @@ void *ur_discrete_buffer_handle_t::mapHostPtr(ur_map_flags_t flags,
                                               wait_list_view &waitListView) {
   TRACK_SCOPE_LATENCY("ur_discrete_buffer_handle_t::mapHostPtr");
   // TODO: use async alloc?
+
+  //if (mapToPtr)
+  //  std::cout << "MapToPtr" << std::endl;
+
+  if (is_host_memory)
+    std::cout << "HOST MEMORY" << std::endl;
 
   void *ptr = mapToPtr;
   if (!ptr) {
@@ -544,16 +575,19 @@ ur_result_t urMemBufferCreate(ur_context_handle_t hContext,
   void *hostPtr = pProperties ? pProperties->pHost : nullptr;
   auto accessMode = ur_mem_buffer_t::getDeviceAccessMode(flags);
 
-  if (useHostBuffer(hContext)) {
-    auto hostPtrAction =
+  auto hostPtrAction =
         flags & UR_MEM_FLAG_USE_HOST_POINTER
-            ? ur_integrated_buffer_handle_t::host_ptr_action_t::import
-            : ur_integrated_buffer_handle_t::host_ptr_action_t::copy;
+            ? host_ptr_action_t::import
+            : host_ptr_action_t::copy;
+
+  //std::cout << "normal create" << " " << (flags & UR_MEM_FLAG_USE_HOST_POINTER) << std::endl;
+
+  if (useHostBuffer(hContext)) {
     *phBuffer = ur_mem_handle_t_::create<ur_integrated_buffer_handle_t>(
         hContext, hostPtr, size, hostPtrAction, accessMode);
   } else {
     *phBuffer = ur_mem_handle_t_::create<ur_discrete_buffer_handle_t>(
-        hContext, hostPtr, size, accessMode);
+        hContext, hostPtr, size, hostPtrAction, accessMode);
   }
 
   return UR_RESULT_SUCCESS;
@@ -617,6 +651,8 @@ ur_result_t urMemBufferCreateWithNativeHandle(
 
   // assume read-write
   auto accessMode = ur_mem_buffer_t::device_access_mode_t::read_write;
+
+  //std::cout << "native create" << " " << memoryAttrs.type << std::endl;
 
   if (useHostBuffer(hContext) && memoryAttrs.type == ZE_MEMORY_TYPE_HOST) {
     *phMem = ur_mem_handle_t_::create<ur_integrated_buffer_handle_t>(

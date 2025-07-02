@@ -22,6 +22,8 @@
 
 using usm_unique_ptr_t = std::unique_ptr<void, std::function<void(void *)>>;
 
+enum class host_ptr_action_t { import, copy };
+
 struct ur_mem_buffer_t : ur_object {
 
   enum class device_access_mode_t { read_write, read_only, write_only };
@@ -89,8 +91,6 @@ private:
 // For integrated devices the buffer has been allocated in host memory
 // and can be accessed by the device without copying.
 struct ur_integrated_buffer_handle_t : ur_mem_buffer_t {
-  enum class host_ptr_action_t { import, copy };
-
   ur_integrated_buffer_handle_t(ur_context_handle_t hContext, void *hostPtr,
                                 size_t size, host_ptr_action_t useHostPtr,
                                 device_access_mode_t accesMode);
@@ -133,7 +133,7 @@ struct ur_discrete_buffer_handle_t : ur_mem_buffer_t {
   // first device in the context. Otherwise, the buffer is allocated on
   // firt getDevicePtr call.
   ur_discrete_buffer_handle_t(ur_context_handle_t hContext, void *hostPtr,
-                              size_t size, device_access_mode_t accesMode);
+                              size_t size, host_ptr_action_t hostPtrAction,  device_access_mode_t accesMode);
   ~ur_discrete_buffer_handle_t();
 
   // Create buffer on top of existing device memory.
@@ -168,6 +168,8 @@ private:
   void *mapToPtr = nullptr;
 
   std::vector<host_allocation_desc_t> hostAllocations;
+
+  bool is_host_memory = false;
 
   void *getActiveDeviceAlloc(size_t offset = 0);
   void *allocateOnDevice(ur_device_handle_t hDevice, size_t size);
