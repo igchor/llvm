@@ -3,7 +3,7 @@
 # See LICENSE.TXT
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-if (UR_BUILD_ADAPTER_L0 OR UR_BUILD_ADAPTER_L0_V2)
+if (UR_BUILD_ADAPTER_L0_ALL)
     include(FetchLevelZero)
     set(UMF_BUILD_LEVEL_ZERO_PROVIDER ON CACHE INTERNAL "Build Level Zero Provider")
     set(UMF_LEVEL_ZERO_INCLUDE_DIR "${LEVEL_ZERO_INCLUDE_DIR}" CACHE INTERNAL "Level Zero headers")

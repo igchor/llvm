@@ -60,6 +60,4 @@ add_conformance_devices_test(device_select_binary urDeviceSelectBinary.cpp)
 
 add_l0_loader_devices_test(mem_buffer_create_with_native_handle urMemBufferCreateWithNativeHandleShared.cpp)
 
-if(UR_BUILD_ADAPTER_L0_V2)
-    add_subdirectory(v2)
-endif()
+add_subdirectory(v2)

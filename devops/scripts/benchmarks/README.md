@@ -43,7 +43,7 @@ To install Unified Runtime in the predefined location, use the `-DCMAKE_INSTALL_
 
 UR build example:
 ```
-$ cmake -DCMAKE_BUILD_TYPE=Release -S~/llvm/unified-runtime -B~/ur_build -DCMAKE_INSTALL_PREFIX=~/ur_install -DUR_BUILD_ADAPTER_L0=ON -DUR_BUILD_ADAPTER_L0_V2=ON
+$ cmake -DCMAKE_BUILD_TYPE=Release -S~/llvm/unified-runtime -B~/ur_build -DCMAKE_INSTALL_PREFIX=~/ur_install -DUR_BUILD_ADAPTER_L0=ON
 ```
 
 ### Rebuild

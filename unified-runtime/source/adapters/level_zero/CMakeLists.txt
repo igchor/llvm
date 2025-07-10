@@ -3,7 +3,7 @@
 # See LICENSE.TXT
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-if(UR_BUILD_ADAPTER_L0)
+if(UR_BUILD_ADAPTER_L0_ALL)
     set(ADAPTER_LIB_TYPE SHARED)
     if(UR_STATIC_ADAPTER_L0)
         set(ADAPTER_LIB_TYPE STATIC)
@@ -115,7 +115,7 @@ if(UR_BUILD_ADAPTER_L0)
     )
 endif()
 
-if(UR_BUILD_ADAPTER_L0_V2)
+if(UR_BUILD_ADAPTER_L0_ALL)
     add_ur_adapter(ur_adapter_level_zero_v2
         SHARED
         # sources shared with legacy adapter

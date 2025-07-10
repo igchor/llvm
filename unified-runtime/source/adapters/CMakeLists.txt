@@ -57,7 +57,7 @@ endfunction()
 
 list(APPEND TEMP_LIST "mock")
 
-if(UR_BUILD_ADAPTER_L0 OR UR_BUILD_ADAPTER_L0_V2 OR UR_BUILD_ADAPTER_ALL)
+if(UR_BUILD_ADAPTER_L0_ALL OR UR_BUILD_ADAPTER_ALL)
     add_ur_adapter_subdirectory(level_zero)
     list(APPEND TEMP_LIST "level_zero")
 endif()

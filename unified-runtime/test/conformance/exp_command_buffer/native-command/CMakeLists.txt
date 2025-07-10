@@ -13,7 +13,7 @@ if (UR_BUILD_ADAPTER_HIP)
     target_link_libraries(exp_command_buffer-test PRIVATE rocmdrv)
 endif()
 
-if (UR_BUILD_ADAPTER_L0 OR UR_BUILD_ADAPTER_L0_v2)
+if (UR_BUILD_ADAPTER_L0_ALL)
     target_sources(exp_command_buffer-test PRIVATE "append_native_L0.cpp")
     target_link_libraries(exp_command_buffer-test PRIVATE LevelZeroLoader LevelZeroLoader-Headers)
 endif()
