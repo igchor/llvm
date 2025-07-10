@@ -241,6 +241,11 @@ static void initializeAdapters(std::vector<adapter_impl *> &Adapters,
     auto syclBackend = UrToSyclBackend(adapterBackend);
     Adapters.emplace_back(new adapter_impl(UrAdapter, syclBackend));
 
+    if (Adapters.back()->getUrPlatforms().empty()) {
+      // If the adapter has no platforms, we skip it.
+      Adapters.pop_back();
+    }
+
     const char *env_value = std::getenv("UR_LOG_CALLBACK");
     if (env_value == nullptr || std::string(env_value) != "disabled") {
       CHECK_UR_SUCCESS(adapterSetLoggerCallback(UrAdapter, urLoggerCallback,
